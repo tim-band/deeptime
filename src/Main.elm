@@ -5,13 +5,13 @@ import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
 import Html exposing (Html, button, div, text)
-import Html.Attributes exposing (attribute, style)
-import Html.Events exposing (onClick, onInput, onMouseDown, onMouseUp, onMouseLeave)
-import Json.Decode
+import Html.Attributes exposing (attribute, style, value)
+import Html.Events exposing (onInput, onMouseDown, onMouseUp, onMouseLeave)
 import Random
 import Task
 import Time
 
+main : Program () Model Msg
 main = Browser.element
   { init = init
   , update = update
@@ -20,13 +20,21 @@ main = Browser.element
   }
 
 type alias Time = Float
+type alias TimeDelta = Float
+
+type alias TimeWindow =
+  { top : Time
+  , bottom : Time
+  }
+
+initWindow : Time -> TimeDelta -> TimeWindow
+initWindow top size = { top = top, bottom = top + size }
 
 type alias Model =
   { events : List Event
   , zoomRate : Float
   , moveRate : Float
-  , timeTop : Time
-  , timeBottom : Time
+  , window : TimeWindow
   , width : Float
   , height : Float
   }
@@ -36,9 +44,11 @@ type alias Event =
   , time: Time
   }
 
+randomEvent : Random.Generator Event
 randomEvent = Random.int 0 4 |> Random.andThen (\cat ->
   Random.float 0 100 |> Random.andThen (\t ->
   Random.constant { category = cat, time = t }))
+randomEvents : Random.Generator (List Event)
 randomEvents = Random.list 999 randomEvent
 
 type Msg
@@ -49,6 +59,7 @@ type Msg
   | ZoomOut
   | ZoomStop
   | Move Float
+  | MoveReleased
   | Viewport Float Float
 
 init : () -> (Model, Cmd Msg)
@@ -56,8 +67,7 @@ init _ =
   ( { events = []
     , zoomRate = 1
     , moveRate = 0
-    , timeTop = 0
-    , timeBottom = 100
+    , window = initWindow 0 100
     , width = 500
     , height = 500
     }
@@ -67,13 +77,13 @@ init _ =
     ]
   )
 
+viewportMsg : Result x Browser.Dom.Viewport -> Msg
 viewportMsg r = case r of
   Ok { viewport } -> let { width, height } = viewport in Viewport width height
   Err _ -> NoMsg
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
-  let { events } = model in
   case msg of
     NoMsg -> (model, Cmd.none)
     ZoomStop -> ({ model | zoomRate = 1 }, Cmd.none)
@@ -82,22 +92,19 @@ update msg model =
     Tick -> (tickModel model, Cmd.none)
     SetEvents evs1 -> ({ model | events = evs1 }, Cmd.none)
     Move d -> ({ model | moveRate = d }, Cmd.none)
+    -- just stop when released for now
+    MoveReleased -> ({ model | moveRate = 0 }, Cmd.none)
     Viewport width height -> ({ model | width = width, height = height }, Cmd.none)
 
+tickModel : Model -> Model
 tickModel model =
   let
-    { zoomRate, moveRate, timeTop, timeBottom } = model
-    half = (timeBottom - timeTop) / 2
-    mid = timeTop + half + moveRate * half
+    { zoomRate, moveRate, window } = model
+    half = (window.bottom - window.top) / 2
+    mid = window.top + half + moveRate * half
     newHalf = half * zoomRate
   in
-    { model | timeTop = mid - newHalf, timeBottom = mid + newHalf }
-
-moveModel d model =
-  let
-    { timeTop, timeBottom } = model
-  in
-    { model | timeTop = timeTop + d, timeBottom = timeBottom + d }
+    { model | window = { top = mid - newHalf, bottom = mid + newHalf } }
 
 subscriptions : Model -> Sub Msg
 subscriptions { zoomRate, moveRate } =
@@ -113,8 +120,10 @@ type alias ScreenEvent =
   , ev: Event
   }
 
-findScreenEvents top bottom evs0 =
+findScreenEvents : TimeWindow -> List Event -> List ScreenEvent
+findScreenEvents window evs0 =
   let
+    { top, bottom } = window
     height = bottom - top
     fse evs = case evs of
       [] -> []
@@ -126,19 +135,22 @@ findScreenEvents top bottom evs0 =
 renderEvent : ScreenEvent -> Html Msg
 renderEvent e = div (eventAttrs e) [ text "*" ]
 
-eventAttrs { y, ev } = let { category, time } = ev in
+eventAttrs : ScreenEvent -> List (Html.Attribute msg)
+eventAttrs { y, ev } =
   [ style "position" "fixed"
   , style "top" (String.fromFloat (y * 100) ++ "%")
-  , style "left" (String.fromInt (5 + category * 15) ++ "%")
+  , style "left" (String.fromInt (5 + ev.category * 15) ++ "%")
   ]
 
+stepList : number -> number -> number -> List number
 stepList start step max = if max < start
   then []
   else start :: stepList (start + step) step max
 
-getTicks : Float -> Float -> List Float
-getTicks top bottom =
+getTicks : TimeWindow -> List Float
+getTicks window =
   let
+    { top, bottom } = window
     height = bottom - top
     maxTickSize = height / 5
     digitCount = Basics.logBase 10 maxTickSize |> Basics.floor
@@ -150,30 +162,31 @@ getTicks top bottom =
     firstTick = toFloat (Basics.ceiling (top / tickSize)) * tickSize
   in stepList firstTick tickSize bottom
 
-renderTick : Float -> Float -> Float -> Html Msg
-renderTick top bottom y = Html.div
+renderTick : TimeWindow -> Float -> Html Msg
+renderTick w y = Html.div
   [ style "position" "fixed"
-  , style "top" (String.fromFloat ((y - top) / (bottom - top) * 100) ++ "%")
+  , style "top" (String.fromFloat ((y - w.top) / (w.bottom - w.top) * 100) ++ "%")
   , style "left" "0"
   , style "border-top" "black solid 1px"
-  ] [ String.fromFloat y |> Html.text ]
+  ] [ Html.text <| String.fromFloat y ]
 
 logit : Float -> Float
 logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
 
 stringToMove : Float -> String -> Msg
 stringToMove speed s = case String.toFloat s of
-  Just x -> logit (x * 0.999) * speed |> Move
+  Just x -> Move <| logit (x * 0.999) * speed
   Nothing -> NoMsg
 
 view : Model -> Html Msg
-view { events, timeTop, timeBottom, width, height } =
+view { events, window, width, height, moveRate } =
   let
     sliderWidth = 30
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
     zoomButtonHeight = 20
     zoomButtonHeightText = String.fromInt zoomButtonHeight ++ "px"
+    stopped = if moveRate == 0 then [ value "0" ] else []
   in div []
     [ button
       [ onMouseDown ZoomOut
@@ -195,15 +208,15 @@ view { events, timeTop, timeBottom, width, height } =
       , style "right" "0"
       , style "width" zoomButtonHeightText
       ] [ text "+" ]
-    , findScreenEvents timeTop timeBottom events |> List.map renderEvent |> Html.div []
-    , getTicks timeTop timeBottom |> List.map (renderTick timeTop timeBottom) |> Html.div []
-    , Html.input
+    , findScreenEvents window events |> List.map renderEvent |> Html.div []
+    , getTicks window |> List.map (renderTick window) |> Html.div []
+    , Html.input (stopped ++
       [ attribute "type" "range"
       , attribute "min" "-1"
       , attribute "max" "1"
-      , attribute "value" "0"
       , attribute "step" "0.01"
-      , stringToMove 0.1 |> onInput
+      , onInput <| stringToMove 0.1
+      , onMouseUp MoveReleased
       , style "position" "fixed"
       , style "top" "0"
       , style "left" "0"
@@ -217,5 +230,5 @@ view { events, timeTop, timeBottom, width, height } =
         ++ "px) rotate(-90deg)"
         )
       , style "transform-origin" "top left"
-      ] []
+      ]) []
     ]
