@@ -31,7 +31,7 @@ initWindow : Time -> TimeDelta -> TimeWindow
 initWindow top size = { top = top, bottom = top + size }
 
 type alias Model =
-  { events : List Event
+  { events : Events
   , zoomRate : Float
   , moveRate : Float
   , window : TimeWindow
@@ -44,12 +44,75 @@ type alias Event =
   , time: Time
   }
 
-randomEvent : Random.Generator Event
-randomEvent = Random.int 0 4 |> Random.andThen (\cat ->
-  Random.float 0 100 |> Random.andThen (\t ->
-  Random.constant { category = cat, time = t }))
+type alias ScreenEvent =
+  { y: Float
+  , ev: Event
+  }
+
+type alias Events =
+  { previousEvents : List Event  -- in reverse time order
+  , visibleEvents : List ScreenEvent
+  , nextEvents : List Event -- in forward order
+  }
+
+forwardEvents : List Event -> List Event
+forwardEvents = List.sortBy .time
+reverseEvents : List Event -> List Event
+reverseEvents = List.sortBy (\e -> -e.time)
+
+screenify : Time -> TimeDelta -> Event -> ScreenEvent
+screenify top height ev = { y = (ev.time - top) / height, ev = ev }
+
+findScreenEvents : TimeWindow -> List Event -> Events
+findScreenEvents window evs0 =
+  let
+    { top, bottom } = window
+    height = bottom - top
+    tooEarly { time } = time < top
+    tooLate { time } = bottom < time
+    fse : List Event -> List ScreenEvent
+    fse evs = case evs of
+      [] -> []
+      (e :: es) -> if tooEarly e || tooLate e
+        then fse es
+        else screenify top height e :: fse es
+  in
+    { previousEvents = List.filter tooEarly evs0 |> reverseEvents
+    , visibleEvents = fse evs0
+    , nextEvents = List.filter tooLate evs0 |> forwardEvents
+    }
+
+adjustScreenEvents : TimeWindow -> Events -> Events
+adjustScreenEvents { top, bottom } { previousEvents, visibleEvents, nextEvents } =
+  let
+    tooEarly { time } = time < top
+    tooLate { time } = bottom < time
+    (earlies1, notEarlies) = List.partition (.ev >> tooEarly) visibleEvents
+    earlies = List.map .ev earlies1 |> reverseEvents
+    (lates1, notLates) = List.partition (.ev >> tooLate) notEarlies
+    stillVisible = List.map .ev notLates
+    lates = List.map .ev lates1 |> forwardEvents
+    (stillPrevs, nowIn1) = List.partition tooEarly previousEvents
+    (stillNexts, nowIn2) = List.partition tooLate nextEvents
+    visible = nowIn1 ++ nowIn2 ++ stillVisible
+    height = bottom - top
+  in
+    { previousEvents = earlies ++ stillPrevs
+    , visibleEvents = List.map (screenify top height) visible
+    , nextEvents = lates ++ stillNexts
+    }
+
+randomEvent : Float -> Random.Generator Event
+randomEvent max = Random.int 0 4 |> Random.andThen (\cat ->
+  Random.float 0 max |> Random.map (\t ->
+  { category = cat, time = t }))
 randomEvents : Random.Generator (List Event)
-randomEvents = Random.list 999 randomEvent
+randomEvents =
+  Random.list 999 (randomEvent 100) |> Random.andThen (\es1 ->
+  Random.list 999 (randomEvent 1000) |> Random.andThen (\es2 ->
+  Random.list 999 (randomEvent 10000) |> Random.andThen (\es3 ->
+  Random.list 999 (randomEvent 100000) |> Random.andThen (\es4 ->
+  Random.constant (es1 ++ es2 ++ es3 ++ es4)))))
 
 type Msg
   = NoMsg
@@ -63,11 +126,11 @@ type Msg
   | Viewport Float Float
 
 init : () -> (Model, Cmd Msg)
-init _ =
-  ( { events = []
+init _ = let window = initWindow 0 100 in
+  ( { events = findScreenEvents window []
     , zoomRate = 1
     , moveRate = 0
-    , window = initWindow 0 100
+    , window = window
     , width = 500
     , height = 500
     }
@@ -90,7 +153,10 @@ update msg model =
     ZoomOut -> ({ model | zoomRate = 1.02 }, Cmd.none)
     ZoomIn -> ({ model | zoomRate = 0.98 }, Cmd.none)
     Tick -> (tickModel model, Cmd.none)
-    SetEvents evs1 -> ({ model | events = evs1 }, Cmd.none)
+    SetEvents evs1 ->
+      let
+        { window } = model
+      in ({ model | events = findScreenEvents window evs1 }, Cmd.none)
     Move d -> ({ model | moveRate = d }, Cmd.none)
     -- just stop when released for now
     MoveReleased -> ({ model | moveRate = 0 }, Cmd.none)
@@ -103,8 +169,12 @@ tickModel model =
     half = (window.bottom - window.top) / 2
     mid = window.top + half + moveRate * half
     newHalf = half * zoomRate
+    window1 = { top = mid - newHalf, bottom = mid + newHalf }
   in
-    { model | window = { top = mid - newHalf, bottom = mid + newHalf } }
+    { model
+    | window = window1
+    , events = adjustScreenEvents window1 model.events
+    }
 
 subscriptions : Model -> Sub Msg
 subscriptions { zoomRate, moveRate } =
@@ -114,23 +184,6 @@ subscriptions { zoomRate, moveRate } =
       then resize
       else Sub.batch [resize, Time.every 20 (\_ -> Tick)]
   in all
-
-type alias ScreenEvent =
-  { y: Float
-  , ev: Event
-  }
-
-findScreenEvents : TimeWindow -> List Event -> List ScreenEvent
-findScreenEvents window evs0 =
-  let
-    { top, bottom } = window
-    height = bottom - top
-    fse evs = case evs of
-      [] -> []
-      (e :: es) -> let t = e.time in if t < top || bottom < t
-        then fse es
-        else { y = (t - top) / height, ev = e } :: fse es
-  in fse evs0
 
 renderEvent : ScreenEvent -> Html Msg
 renderEvent e = div (eventAttrs e) [ text "*" ]
@@ -187,6 +240,7 @@ view { events, window, width, height, moveRate } =
     zoomButtonHeight = 20
     zoomButtonHeightText = String.fromInt zoomButtonHeight ++ "px"
     stopped = if moveRate == 0 then [ value "0" ] else []
+    { visibleEvents } = events
   in div []
     [ button
       [ onMouseDown ZoomOut
@@ -208,7 +262,7 @@ view { events, window, width, height, moveRate } =
       , style "right" "0"
       , style "width" zoomButtonHeightText
       ] [ text "+" ]
-    , findScreenEvents window events |> List.map renderEvent |> Html.div []
+    , visibleEvents |> List.map renderEvent |> Html.div []
     , getTicks window |> List.map (renderTick window) |> Html.div []
     , Html.input (stopped ++
       [ attribute "type" "range"
