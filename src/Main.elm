@@ -4,9 +4,9 @@ import Basics
 import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
-import Html exposing (Html, button, div, text)
+import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value)
-import Html.Events exposing (onInput, onMouseDown, onMouseUp, onMouseLeave)
+import Html.Events exposing (onInput, onMouseUp)
 import Random
 import Task
 import Time
@@ -64,22 +64,18 @@ screenify : Time -> TimeDelta -> Event -> ScreenEvent
 screenify top height ev = { y = (ev.time - top) / height, ev = ev }
 
 findScreenEvents : TimeWindow -> List Event -> Events
-findScreenEvents window evs0 =
+findScreenEvents window evs =
   let
     { top, bottom } = window
     height = bottom - top
     tooEarly { time } = time < top
     tooLate { time } = bottom < time
-    fse : List Event -> List ScreenEvent
-    fse evs = case evs of
-      [] -> []
-      (e :: es) -> if tooEarly e || tooLate e
-        then fse es
-        else screenify top height e :: fse es
+    justRight t = not (tooEarly t || tooLate t)
+    visibles = evs |> List.filter justRight |> List.map (screenify top height)
   in
-    { previousEvents = List.filter tooEarly evs0 |> reverseEvents
-    , visibleEvents = fse evs0
-    , nextEvents = List.filter tooLate evs0 |> forwardEvents
+    { previousEvents = List.filter tooEarly evs |> reverseEvents
+    , visibleEvents = visibles
+    , nextEvents = List.filter tooLate evs |> forwardEvents
     }
 
 adjustScreenEvents : TimeWindow -> Events -> Events
@@ -154,36 +150,53 @@ update msg model =
     ZoomIn -> ({ model | zoomRate = 0.98 }, Cmd.none)
     Tick -> (tickModel model, Cmd.none)
     SetEvents evs1 ->
-      let
-        { window } = model
-      in ({ model | events = findScreenEvents window evs1 }, Cmd.none)
+      ( { model | events = findScreenEvents model.window evs1 }
+      , Cmd.none
+      )
     Move d -> ({ model | moveRate = d }, Cmd.none)
     -- just stop when released for now
     MoveReleased -> ({ model | moveRate = 0 }, Cmd.none)
     Viewport width height -> ({ model | width = width, height = height }, Cmd.none)
+
+getZoomRate : Int -> Int -> Float -> Events -> Float -> Float
+getZoomRate minEvents maxEvents zoomRateMultiplier events moveDist =
+  let
+    visibleCount = List.length events.visibleEvents
+    stationaryRate = if visibleCount < minEvents
+      then toFloat (minEvents - visibleCount)
+      else if maxEvents < visibleCount
+      then toFloat (maxEvents - visibleCount)
+      else 0
+    motionRate = if moveDist < 1
+      then 1 - moveDist
+      else if 1 < moveDist
+      then moveDist - 1
+      else 0
+  in Basics.e ^ (zoomRateMultiplier * (stationaryRate + motionRate))
 
 tickModel : Model -> Model
 tickModel model =
   let
     { zoomRate, moveRate, window } = model
     half = (window.bottom - window.top) / 2
-    mid = window.top + half + moveRate * half
+    mid0 = window.top + half + moveRate * half
     newHalf = half * zoomRate
+    mid = Basics.max mid0 newHalf
     window1 = { top = mid - newHalf, bottom = mid + newHalf }
+    events = adjustScreenEvents window1 model.events
   in
     { model
     | window = window1
-    , events = adjustScreenEvents window1 model.events
+    , events = events
+    , zoomRate = getZoomRate 10 30 0.001 events (moveRate * 100)
     }
 
 subscriptions : Model -> Sub Msg
-subscriptions { zoomRate, moveRate } =
-  let
-    resize = onResize (\w h -> Viewport (toFloat w) (toFloat h))
-    all = if zoomRate == 1 && moveRate == 0
-      then resize
-      else Sub.batch [resize, Time.every 20 (\_ -> Tick)]
-  in all
+subscriptions _ =
+  Sub.batch
+    [ onResize (\w h -> Viewport (toFloat w) (toFloat h))
+    , Time.every 20 (\_ -> Tick)
+    ]
 
 renderEvent : ScreenEvent -> Html Msg
 renderEvent e = div (eventAttrs e) [ text "*" ]
@@ -237,32 +250,10 @@ view { events, window, width, height, moveRate } =
     sliderWidth = 30
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
-    zoomButtonHeight = 20
-    zoomButtonHeightText = String.fromInt zoomButtonHeight ++ "px"
     stopped = if moveRate == 0 then [ value "0" ] else []
     { visibleEvents } = events
   in div []
-    [ button
-      [ onMouseDown ZoomOut
-      , onMouseUp ZoomStop
-      , onMouseLeave ZoomStop
-      , style "position" "fixed"
-      , style "top" zoomButtonHeightText
-      , style "height" zoomButtonHeightText
-      , style "right" "0"
-      , style "width" zoomButtonHeightText
-      ] [ text "-" ]
-    , button
-      [ onMouseDown ZoomIn
-      , onMouseUp ZoomStop
-      , onMouseLeave ZoomStop
-      , style "position" "fixed"
-      , style "top" "0"
-      , style "height" zoomButtonHeightText
-      , style "right" "0"
-      , style "width" zoomButtonHeightText
-      ] [ text "+" ]
-    , visibleEvents |> List.map renderEvent |> Html.div []
+    [ visibleEvents |> List.map renderEvent |> Html.div []
     , getTicks window |> List.map (renderTick window) |> Html.div []
     , Html.input (stopped ++
       [ attribute "type" "range"
