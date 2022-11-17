@@ -7,7 +7,10 @@ import Browser.Events exposing (onResize)
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value)
 import Html.Events exposing (onInput, onMouseUp)
+import List.Extra exposing (minimumBy)
 import Random
+import Svg
+import Svg.Attributes as Svga
 import Task
 import Time
 
@@ -40,8 +43,9 @@ type alias Model =
   }
 
 type alias Event =
-  { category: Int
-  , time: Time
+  { category : Int
+  , time : Time
+  , name : String
   }
 
 type alias ScreenEvent =
@@ -98,10 +102,29 @@ adjustScreenEvents { top, bottom } { previousEvents, visibleEvents, nextEvents }
     , nextEvents = lates ++ stillNexts
     }
 
+randomJoin : Random.Generator (Random.Generator a) -> Random.Generator a
+randomJoin rr = rr |> Random.andThen (\r -> r)
+
+randomChar : Random.Generator Char
+randomChar = Random.int (Char.toCode 'a') (Char.toCode 'z') |> Random.map Char.fromCode
+
+randomCharList : Random.Generator (List Char)
+randomCharList = Random.weighted
+  (1, Random.constant [])
+  [(9, Random.map2 (::) randomChar (Random.lazy (\_ -> randomCharList)))]
+  |> randomJoin
+
+randomCharListMin : Int -> Random.Generator (List Char)
+randomCharListMin min = Random.map2 (++) (Random.list min randomChar) randomCharList
+
+randomString : Int -> Random.Generator String
+randomString min = Random.map String.fromList (randomCharListMin min)
+
 randomEvent : Float -> Random.Generator Event
 randomEvent max = Random.int 0 4 |> Random.andThen (\cat ->
+  randomString 3 |> Random.andThen (\name ->
   Random.float 0 max |> Random.map (\t ->
-  { category = cat, time = t }))
+  { category = cat, time = t, name = name })))
 randomEvents : Random.Generator (List Event)
 randomEvents =
   Random.list 999 (randomEvent 100) |> Random.andThen (\es1 ->
@@ -201,11 +224,16 @@ subscriptions _ =
 renderEvent : ScreenEvent -> Html Msg
 renderEvent e = div (eventAttrs e) [ text "*" ]
 
+eventPosX : Event -> Int
+eventPosX ev = 5 + ev.category * 5
+
 eventAttrs : ScreenEvent -> List (Html.Attribute msg)
 eventAttrs { y, ev } =
   [ style "position" "fixed"
   , style "top" (String.fromFloat (y * 100) ++ "%")
-  , style "left" (String.fromInt (5 + ev.category * 15) ++ "%")
+  , style "left" (String.fromInt (eventPosX ev) ++ "%")
+  , style "z-index" "2"
+  , style "transform" "translateY(-30%)"
   ]
 
 stepList : number -> number -> number -> List number
@@ -244,6 +272,9 @@ stringToMove speed s = case String.toFloat s of
   Just x -> Move <| logit (x * 0.999) * speed
   Nothing -> NoMsg
 
+getMiddlest : List ScreenEvent -> Maybe ScreenEvent
+getMiddlest = minimumBy (\{y} -> abs (0.5 - y))
+
 view : Model -> Html Msg
 view { events, window, width, height, moveRate } =
   let
@@ -252,8 +283,48 @@ view { events, window, width, height, moveRate } =
     sliderTop = 0.25 * height
     stopped = if moveRate == 0 then [ value "0" ] else []
     { visibleEvents } = events
+    eventBox elts = Html.div
+      [ style "position" "fixed"
+      , style "width" "60%"
+      , style "left" "40%"
+      , style "top" "0%"
+      , style "height" "100%"
+      , style "z-index" "1"
+      ] elts
+    focused = getMiddlest visibleEvents
+    focusIndicators = case focused of
+      Nothing -> [ eventBox [] ]
+      Just { y, ev } ->
+        [ Svg.svg
+          [ style "position" "fixed"
+          , style "top" "0%"
+          , style "left" "0%"
+          , style "z-index" "1"
+          , Svga.width "100%"
+          , Svga.height "100%"
+          , [0, 0, width, height]
+            |> List.map String.fromFloat
+            |> String.join " "
+            |> Svga.viewBox
+          ]
+          [ Svg.line
+            [ toFloat (eventPosX ev) / 100 * width |> Basics.round |> String.fromInt |> Svga.x1
+            , y * height |> Basics.round |> String.fromInt |> Svga.y1
+            , 0.4 * width |> Basics.round |> String.fromInt |> Svga.x2
+            , 0.5 * height |> Basics.round |> String.fromInt |> Svga.y2
+            , Svga.stroke "black"
+            ] []
+          ]
+        , eventBox
+          [ Html.div
+            [ style "position" "absolute"
+            , style "top" "50%"
+            , style "transform" "translateY(-50%)"
+            ] [ text ev.name ]
+          ]
+        ]
   in div []
-    [ visibleEvents |> List.map renderEvent |> Html.div []
+    ([ visibleEvents |> List.map renderEvent |> Html.div [ ]
     , getTicks window |> List.map (renderTick window) |> Html.div []
     , Html.input (stopped ++
       [ attribute "type" "range"
@@ -275,5 +346,6 @@ view { events, window, width, height, moveRate } =
         ++ "px) rotate(-90deg)"
         )
       , style "transform-origin" "top left"
+      , style "z-index" "2"
       ]) []
-    ]
+    ] ++ focusIndicators)
