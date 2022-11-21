@@ -13,6 +13,7 @@ import Svg
 import Svg.Attributes as Svga
 import Task
 import Time
+import Html.Events exposing (onClick)
 
 main : Program () Model Msg
 main = Browser.element
@@ -33,13 +34,42 @@ type alias TimeWindow =
 initWindow : Time -> TimeDelta -> TimeWindow
 initWindow top size = { top = top, bottom = top + size }
 
+type MoveMode = MoveConstant | MoveToFocus
+
 type alias Model =
   { events : Events
+  , moveMode : MoveMode
   , zoomRate : Float
   , moveRate : Float
   , window : TimeWindow
   , width : Float
   , height : Float
+  , focused : Maybe FadedScreenEvent
+  }
+
+type alias FadedScreenEvent =
+  { sev : ScreenEvent
+  , fade : Float
+  }
+
+fadeUpFocused : FadedScreenEvent -> FadedScreenEvent
+fadeUpFocused fse =
+  let fade = Basics.min 2 (fse.fade + 0.1)
+  in { fse | fade = fade }
+
+fadeDownFocused : Maybe FadedScreenEvent -> Maybe FadedScreenEvent
+fadeDownFocused mfse = mfse |> Maybe.andThen (\fse -> 
+  let fade = fse.fade - 0.1 in if fade <= 0
+    then Nothing
+    else Just { fse | fade = fade })
+
+updateFadedScreenEventY : Time -> TimeDelta ->FadedScreenEvent -> FadedScreenEvent
+updateFadedScreenEventY top height fsev = let ev = fsev.sev.ev in
+  { sev =
+    { y = yEventPosition top height ev
+    , ev = ev
+    }
+  , fade = fsev.fade
   }
 
 type alias Event =
@@ -64,8 +94,11 @@ forwardEvents = List.sortBy .time
 reverseEvents : List Event -> List Event
 reverseEvents = List.sortBy (\e -> -e.time)
 
+yEventPosition : Time -> TimeDelta -> Event -> Time
+yEventPosition top height ev = (ev.time - top) / height
+
 screenify : Time -> TimeDelta -> Event -> ScreenEvent
-screenify top height ev = { y = (ev.time - top) / height, ev = ev }
+screenify top height ev = { y = yEventPosition top height ev, ev = ev }
 
 findScreenEvents : TimeWindow -> List Event -> Events
 findScreenEvents window evs =
@@ -143,15 +176,18 @@ type Msg
   | Move Float
   | MoveReleased
   | Viewport Float Float
+  | FocusOn Event
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow 0 100 in
   ( { events = findScreenEvents window []
+    , moveMode = MoveConstant
     , zoomRate = 1
     , moveRate = 0
     , window = window
     , width = 500
     , height = 500
+    , focused = Nothing
     }
   , Cmd.batch
     [ Random.generate SetEvents randomEvents
@@ -171,15 +207,26 @@ update msg model =
     ZoomStop -> ({ model | zoomRate = 1 }, Cmd.none)
     ZoomOut -> ({ model | zoomRate = 1.02 }, Cmd.none)
     ZoomIn -> ({ model | zoomRate = 0.98 }, Cmd.none)
-    Tick -> (tickModel model, Cmd.none)
+    Tick -> (updateModel model, Cmd.none)
     SetEvents evs1 ->
       ( { model | events = findScreenEvents model.window evs1 }
       , Cmd.none
       )
-    Move d -> ({ model | moveRate = d }, Cmd.none)
+    Move d -> ({ model | moveMode = MoveConstant, moveRate = d }, Cmd.none)
     -- just stop when released for now
     MoveReleased -> ({ model | moveRate = 0 }, Cmd.none)
     Viewport width height -> ({ model | width = width, height = height }, Cmd.none)
+    FocusOn ev ->
+      let
+        { top, bottom } = model.window
+        height = bottom - top
+      in
+        ({ model
+          | focused = Just { sev = screenify top height ev, fade = 2 }
+          , moveMode = MoveToFocus
+          }
+        , Cmd.none
+        )
 
 getZoomRate : Int -> Int -> Float -> Events -> Float -> Float
 getZoomRate minEvents maxEvents zoomRateMultiplier events moveDist =
@@ -197,21 +244,44 @@ getZoomRate minEvents maxEvents zoomRateMultiplier events moveDist =
       else 0
   in Basics.e ^ (zoomRateMultiplier * (stationaryRate + motionRate))
 
-tickModel : Model -> Model
-tickModel model =
+updateModel : Model -> Model
+updateModel model =
   let
-    { zoomRate, moveRate, window } = model
+    { zoomRate, moveMode, moveRate, window, focused } = model
     half = (window.bottom - window.top) / 2
-    mid0 = window.top + half + moveRate * half
+    moveRate1 = case moveMode of
+      MoveConstant -> moveRate
+      MoveToFocus -> case focused of
+        Nothing -> moveRate
+        Just foc ->
+          let
+            halfWay = window.top + half
+            force = (foc.sev.ev.time - halfWay) * 0.03
+          in (moveRate + force) * 0.80
+    mid0 = window.top + half + moveRate1 * half
     newHalf = half * zoomRate
-    mid = Basics.max mid0 newHalf
+    mid = Basics.max mid0 0
     window1 = { top = mid - newHalf, bottom = mid + newHalf }
     events = adjustScreenEvents window1 model.events
+    middlest = getMiddlest events.visibleEvents
+    focused1 = case moveMode of
+      MoveToFocus -> focused
+      MoveConstant -> case focused of
+        Nothing -> Maybe.map (\e -> { sev = e, fade = 0 }) middlest
+        Just foc0 ->
+          case middlest of
+            Nothing -> fadeDownFocused focused
+            Just sevp -> if sevp.ev == foc0.sev.ev
+              then Just <| fadeUpFocused foc0
+              else fadeDownFocused focused
+    focused2 = Maybe.map (updateFadedScreenEventY window1.top (newHalf * 2)) focused1
   in
     { model
     | window = window1
+    , moveRate = moveRate1
     , events = events
-    , zoomRate = getZoomRate 10 30 0.001 events (moveRate * 100)
+    , zoomRate = getZoomRate 10 30 0.001 events (moveRate1 * 100)
+    , focused = focused2
     }
 
 subscriptions : Model -> Sub Msg
@@ -227,13 +297,15 @@ renderEvent e = div (eventAttrs e) [ text "*" ]
 eventPosX : Event -> Int
 eventPosX ev = 5 + ev.category * 5
 
-eventAttrs : ScreenEvent -> List (Html.Attribute msg)
+eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
 eventAttrs { y, ev } =
   [ style "position" "fixed"
   , style "top" (String.fromFloat (y * 100) ++ "%")
   , style "left" (String.fromInt (eventPosX ev) ++ "%")
   , style "z-index" "2"
   , style "transform" "translateY(-30%)"
+  , style "cursor" "pointer"
+  , onClick <| FocusOn ev
   ]
 
 stepList : number -> number -> number -> List number
@@ -276,7 +348,7 @@ getMiddlest : List ScreenEvent -> Maybe ScreenEvent
 getMiddlest = minimumBy (\{y} -> abs (0.5 - y))
 
 view : Model -> Html Msg
-view { events, window, width, height, moveRate } =
+view { events, window, width, height, moveRate, focused } =
   let
     sliderWidth = 30
     sliderHeight = 0.5 * height
@@ -291,10 +363,9 @@ view { events, window, width, height, moveRate } =
       , style "height" "100%"
       , style "z-index" "1"
       ] elts
-    focused = getMiddlest visibleEvents
     focusIndicators = case focused of
       Nothing -> [ eventBox [] ]
-      Just { y, ev } ->
+      Just { sev, fade } -> let opacity = fade |> Basics.min 1 |> String.fromFloat in
         [ Svg.svg
           [ style "position" "fixed"
           , style "top" "0%"
@@ -308,11 +379,12 @@ view { events, window, width, height, moveRate } =
             |> Svga.viewBox
           ]
           [ Svg.line
-            [ toFloat (eventPosX ev) / 100 * width |> Basics.round |> String.fromInt |> Svga.x1
-            , y * height |> Basics.round |> String.fromInt |> Svga.y1
+            [ toFloat (eventPosX sev.ev) / 100 * width |> Basics.round |> String.fromInt |> Svga.x1
+            , sev.y * height |> Basics.round |> String.fromInt |> Svga.y1
             , 0.4 * width |> Basics.round |> String.fromInt |> Svga.x2
             , 0.5 * height |> Basics.round |> String.fromInt |> Svga.y2
             , Svga.stroke "black"
+            , Svga.opacity opacity
             ] []
           ]
         , eventBox
@@ -320,7 +392,8 @@ view { events, window, width, height, moveRate } =
             [ style "position" "absolute"
             , style "top" "50%"
             , style "transform" "translateY(-50%)"
-            ] [ text ev.name ]
+            , style "opacity" opacity
+            ] [ text sev.ev.name ]
           ]
         ]
   in div []
