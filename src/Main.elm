@@ -32,7 +32,7 @@ type alias TimeWindow =
   }
 
 initWindow : Time -> TimeDelta -> TimeWindow
-initWindow top size = { top = top, bottom = top + size }
+initWindow top size = { top = top, bottom = top - size }
 
 type MoveMode = MoveConstant | MoveToFocus
 
@@ -90,12 +90,12 @@ type alias Events =
   }
 
 forwardEvents : List Event -> List Event
-forwardEvents = List.sortBy .time
+forwardEvents = List.sortBy (\e -> -e.time)
 reverseEvents : List Event -> List Event
-reverseEvents = List.sortBy (\e -> -e.time)
+reverseEvents = List.sortBy .time
 
 yEventPosition : Time -> TimeDelta -> Event -> Time
-yEventPosition top height ev = (ev.time - top) / height
+yEventPosition top height ev = (top - ev.time) / height
 
 screenify : Time -> TimeDelta -> Event -> ScreenEvent
 screenify top height ev = { y = yEventPosition top height ev, ev = ev }
@@ -104,31 +104,31 @@ findScreenEvents : TimeWindow -> List Event -> Events
 findScreenEvents window evs =
   let
     { top, bottom } = window
-    height = bottom - top
-    tooEarly { time } = time < top
-    tooLate { time } = bottom < time
+    height = top - bottom
+    tooEarly { time } = time < bottom
+    tooLate { time } = top < time
     justRight t = not (tooEarly t || tooLate t)
     visibles = evs |> List.filter justRight |> List.map (screenify top height)
   in
-    { previousEvents = List.filter tooEarly evs |> reverseEvents
+    { previousEvents = List.filter tooEarly evs |> forwardEvents
     , visibleEvents = visibles
-    , nextEvents = List.filter tooLate evs |> forwardEvents
+    , nextEvents = List.filter tooLate evs |> reverseEvents
     }
 
 adjustScreenEvents : TimeWindow -> Events -> Events
 adjustScreenEvents { top, bottom } { previousEvents, visibleEvents, nextEvents } =
   let
-    tooEarly { time } = time < top
-    tooLate { time } = bottom < time
+    tooEarly { time } = time < bottom
+    tooLate { time } = top < time
     (earlies1, notEarlies) = List.partition (.ev >> tooEarly) visibleEvents
-    earlies = List.map .ev earlies1 |> reverseEvents
+    earlies = List.map .ev earlies1 |> forwardEvents
     (lates1, notLates) = List.partition (.ev >> tooLate) notEarlies
     stillVisible = List.map .ev notLates
-    lates = List.map .ev lates1 |> forwardEvents
+    lates = List.map .ev lates1 |> reverseEvents
     (stillPrevs, nowIn1) = List.partition tooEarly previousEvents
     (stillNexts, nowIn2) = List.partition tooLate nextEvents
     visible = nowIn1 ++ nowIn2 ++ stillVisible
-    height = bottom - top
+    height = top - bottom
   in
     { previousEvents = earlies ++ stillPrevs
     , visibleEvents = List.map (screenify top height) visible
@@ -153,23 +153,28 @@ randomCharListMin min = Random.map2 (++) (Random.list min randomChar) randomChar
 randomString : Int -> Random.Generator String
 randomString min = Random.map String.fromList (randomCharListMin min)
 
-randomEvent : Float -> Random.Generator Event
-randomEvent max = Random.int 0 4 |> Random.andThen (\cat ->
+randomEvent : Time -> TimeDelta -> Random.Generator Event
+randomEvent max size = Random.int 0 4 |> Random.andThen (\cat ->
   randomString 3 |> Random.andThen (\name ->
-  Random.float 0 max |> Random.map (\t ->
+  Random.float (max - size) max |> Random.map (\t ->
   { category = cat, time = t, name = name })))
+
+present : Time
+present = 14e9
+
 randomEvents : Random.Generator (List Event)
 randomEvents =
-  Random.list 999 (randomEvent 100) |> Random.andThen (\es1 ->
-  Random.list 999 (randomEvent 1000) |> Random.andThen (\es2 ->
-  Random.list 999 (randomEvent 10000) |> Random.andThen (\es3 ->
-  Random.list 999 (randomEvent 100000) |> Random.andThen (\es4 ->
-  Random.constant (es1 ++ es2 ++ es3 ++ es4)))))
+  Random.list 999 (randomEvent present 1) |> Random.andThen (\es0 ->
+  Random.list 999 (randomEvent present 100) |> Random.andThen (\es1 ->
+  Random.list 999 (randomEvent present 1000) |> Random.andThen (\es2 ->
+  Random.list 999 (randomEvent present 10000) |> Random.andThen (\es3 ->
+  Random.list 999 (randomEvent present 100000) |> Random.andThen (\es4 ->
+  Random.constant (es0 ++ es1 ++ es2 ++ es3 ++ es4))))))
 
 type Msg
   = NoMsg
   | SetEvents (List Event)
-  | Tick
+  | NextFrame
   | ZoomIn
   | ZoomOut
   | ZoomStop
@@ -179,7 +184,7 @@ type Msg
   | FocusOn Event
 
 init : () -> (Model, Cmd Msg)
-init _ = let window = initWindow 0 100 in
+init _ = let window = initWindow present 100 in
   ( { events = findScreenEvents window []
     , moveMode = MoveConstant
     , zoomRate = 1
@@ -207,7 +212,7 @@ update msg model =
     ZoomStop -> ({ model | zoomRate = 1 }, Cmd.none)
     ZoomOut -> ({ model | zoomRate = 1.02 }, Cmd.none)
     ZoomIn -> ({ model | zoomRate = 0.98 }, Cmd.none)
-    Tick -> (updateModel model, Cmd.none)
+    NextFrame -> (updateModel model, Cmd.none)
     SetEvents evs1 ->
       ( { model | events = findScreenEvents model.window evs1 }
       , Cmd.none
@@ -219,7 +224,7 @@ update msg model =
     FocusOn ev ->
       let
         { top, bottom } = model.window
-        height = bottom - top
+        height = top - bottom
       in
         ({ model
           | focused = Just { sev = screenify top height ev, fade = 2 }
@@ -248,20 +253,20 @@ updateModel : Model -> Model
 updateModel model =
   let
     { zoomRate, moveMode, moveRate, window, focused } = model
-    half = (window.bottom - window.top) / 2
+    half = (window.top - window.bottom) / 2
     moveRate1 = case moveMode of
       MoveConstant -> moveRate
       MoveToFocus -> case focused of
         Nothing -> moveRate
         Just foc ->
           let
-            halfWay = window.top + half
+            halfWay = window.top - half
             force = (foc.sev.ev.time - halfWay) * 0.03
           in (moveRate + force) * 0.80
-    mid0 = window.top + half + moveRate1 * half
+    mid0 = window.top - half + moveRate1 * half
     newHalf = half * zoomRate
     mid = Basics.max mid0 0
-    window1 = { top = mid - newHalf, bottom = mid + newHalf }
+    window1 = { top = mid + newHalf, bottom = mid - newHalf }
     events = adjustScreenEvents window1 model.events
     middlest = getMiddlest events.visibleEvents
     focused1 = case moveMode of
@@ -288,7 +293,7 @@ subscriptions : Model -> Sub Msg
 subscriptions _ =
   Sub.batch
     [ onResize (\w h -> Viewport (toFloat w) (toFloat h))
-    , Time.every 20 (\_ -> Tick)
+    , Time.every 20 (\_ -> NextFrame)
     ]
 
 renderEvent : ScreenEvent -> Html Msg
@@ -308,16 +313,21 @@ eventAttrs { y, ev } =
   , onClick <| FocusOn ev
   ]
 
-stepList : number -> number -> number -> List number
-stepList start step max = if max < start
-  then []
-  else start :: stepList (start + step) step max
+type alias Tick =
+  { time : Time
+  , rendering : String
+  }
 
-getTicks : TimeWindow -> List Float
+tickList : Time -> TimeDelta -> Time -> List Tick
+tickList start step min = if start <= min
+  then []
+  else { time = start, rendering = String.fromFloat start } :: tickList (start - step) step min
+
+getTicks : TimeWindow -> List Tick
 getTicks window =
   let
     { top, bottom } = window
-    height = bottom - top
+    height = top - bottom
     maxTickSize = height / 5
     digitCount = Basics.logBase 10 maxTickSize |> Basics.floor
     minTickSize = 10 ^ toFloat digitCount
@@ -326,15 +336,15 @@ getTicks window =
       Just t -> t
       Nothing -> minTickSize
     firstTick = toFloat (Basics.ceiling (top / tickSize)) * tickSize
-  in stepList firstTick tickSize bottom
+  in tickList firstTick tickSize bottom
 
-renderTick : TimeWindow -> Float -> Html Msg
-renderTick w y = Html.div
+renderTick : TimeWindow -> Tick -> Html Msg
+renderTick w { time, rendering } = Html.div
   [ style "position" "fixed"
-  , style "top" (String.fromFloat ((y - w.top) / (w.bottom - w.top) * 100) ++ "%")
+  , style "top" (String.fromFloat ((w.top - time) / (w.top - w.bottom) * 100) ++ "%")
   , style "left" "0"
   , style "border-top" "black solid 1px"
-  ] [ Html.text <| String.fromFloat y ]
+  ] [ Html.text rendering ]
 
 logit : Float -> Float
 logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
