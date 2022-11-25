@@ -314,14 +314,14 @@ eventAttrs { y, ev } =
   ]
 
 type alias Tick =
-  { time : Time
+  { y : Float
   , rendering : String
   }
 
-tickList : Time -> TimeDelta -> Time -> List Tick
-tickList start step min = if start <= min
+tickList : Float -> Float -> Float -> Float -> List Tick
+tickList num numStep y yStep = if 1 <= y
   then []
-  else { time = start, rendering = String.fromFloat start } :: tickList (start - step) step min
+  else { y = y, rendering = String.fromFloat num } :: tickList (num + numStep) numStep (y + yStep) yStep
 
 getTicks : TimeWindow -> List Tick
 getTicks window =
@@ -335,13 +335,14 @@ getTicks window =
     tickSize = case List.head tickSizes of
       Just t -> t
       Nothing -> minTickSize
-    firstTick = toFloat (Basics.ceiling (top / tickSize)) * tickSize
-  in tickList firstTick tickSize bottom
+    yearsAgo = present - top
+    firstTick = toFloat (Basics.ceiling (yearsAgo / tickSize)) * tickSize
+  in tickList firstTick tickSize ((firstTick - yearsAgo) / height) (tickSize / height)
 
 renderTick : TimeWindow -> Tick -> Html Msg
-renderTick w { time, rendering } = Html.div
+renderTick w { y, rendering } = Html.div
   [ style "position" "fixed"
-  , style "top" (String.fromFloat ((w.top - time) / (w.top - w.bottom) * 100) ++ "%")
+  , style "top" (String.fromFloat (y * 100) ++ "%")
   , style "left" "0"
   , style "border-top" "black solid 1px"
   ] [ Html.text rendering ]
