@@ -7,6 +7,7 @@ import Browser.Events exposing (onResize)
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value)
 import Html.Events exposing (onInput, onMouseUp)
+import Http
 import List.Extra exposing (minimumBy)
 import Random
 import Svg
@@ -15,7 +16,10 @@ import Task
 import Time
 import Time.Extra
 import Html.Events exposing (onClick)
-import Time exposing (millisToPosix)
+
+import Stratigraphy
+
+import Debug
 
 main : Program () Model Msg
 main = Browser.element
@@ -47,6 +51,7 @@ type alias Model =
   , width : Float
   , height : Float
   , focused : Maybe FadedScreenEvent
+  , stratigraphyData : Maybe Stratigraphy.StratigraphyDataDict
   }
 
 type alias FadedScreenEvent =
@@ -181,13 +186,12 @@ type Msg
   = NoMsg
   | SetEvents (List Event)
   | NextFrame
-  | ZoomIn
-  | ZoomOut
-  | ZoomStop
   | Move Float
   | MoveReleased
   | Viewport Float Float
   | FocusOn Event
+  | StratigraphyLoad (Result Http.Error Stratigraphy.StratigraphyDataDict)
+  | StratigraphyIntervalsLoad (Result Http.Error Stratigraphy.IntervalDict)
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
@@ -199,10 +203,15 @@ init _ = let window = initWindow present 100 in
     , width = 500
     , height = 500
     , focused = Nothing
+    , stratigraphyData = Nothing
     }
   , Cmd.batch
     [ Random.generate SetEvents randomEvents
     , Task.attempt viewportMsg getViewport
+    , Http.get
+      { url = Stratigraphy.timeline_data_url
+      , expect = Http.expectJson StratigraphyLoad Stratigraphy.decodeStratigraphyData
+      }
     ]
   )
 
@@ -211,13 +220,18 @@ viewportMsg r = case r of
   Ok { viewport } -> let { width, height } = viewport in Viewport width height
   Err _ -> NoMsg
 
+showError : Http.Error -> String
+showError e = case e of
+    Http.BadUrl s -> "Bad URL: " ++ s
+    Http.Timeout -> "Timeout"
+    Http.NetworkError -> "Network error"
+    Http.BadStatus i -> "Failed: " ++ String.fromInt i
+    Http.BadBody s -> "Bad body: " ++ s
+
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     NoMsg -> (model, Cmd.none)
-    ZoomStop -> ({ model | zoomRate = 1 }, Cmd.none)
-    ZoomOut -> ({ model | zoomRate = 1.02 }, Cmd.none)
-    ZoomIn -> ({ model | zoomRate = 0.98 }, Cmd.none)
     NextFrame -> (updateModel model, Cmd.none)
     SetEvents evs1 ->
       ( { model | events = findScreenEvents model.window evs1 }
@@ -235,6 +249,26 @@ update msg model =
         ({ model
           | focused = Just { sev = screenify top height ev, fade = 2 }
           , moveMode = MoveToFocus
+          }
+        , Cmd.none
+        )
+    StratigraphyLoad (Err _) -> (model, Cmd.none)
+    StratigraphyLoad (Ok str) -> Debug.log "loaded strat data"
+      ( { model
+        | stratigraphyData = Just str
+        }
+      , Http.get
+        { url = Stratigraphy.time_interval_data_url
+        , expect = Http.expectJson StratigraphyIntervalsLoad Stratigraphy.decodeStratigraphyIntervals
+        }
+      )
+    StratigraphyIntervalsLoad (Err e) -> (model, Debug.log ("Failed to load intervals" ++ showError e) Cmd.none)
+    StratigraphyIntervalsLoad (Ok ints) -> case model.stratigraphyData of
+      Nothing -> (model, Cmd.none)
+      Just data ->
+        ( { model
+          | events = findScreenEvents model.window (Stratigraphy.stratigraphyEvents data ints)
+          , stratigraphyData = Nothing
           }
         , Cmd.none
         )
@@ -431,12 +465,6 @@ monthName m = case m of
     Time.Nov -> "Nov"
     Time.Dec -> "Dec"
 
-partsToMillis : Time.Extra.Parts -> Float
-partsToMillis p = p |> Time.Extra.partsToPosix Time.utc |> Time.posixToMillis |> toFloat
-
-partsToSeconds : Time.Extra.Parts -> Float
-partsToSeconds p = (partsToMillis p) / 1000
-
 millisToParts : Float -> Time.Extra.Parts
 millisToParts m = m |> Basics.round |> Time.millisToPosix |> Time.Extra.posixToParts Time.utc
 
@@ -523,8 +551,8 @@ getTicks window =
       then getGregorianTicks ad height minTickSize maxTickSize
       else getAdBcTicks ad height minTickSize maxTickSize
 
-renderTick : TimeWindow -> Tick -> Html Msg
-renderTick w { y, rendering } = Html.div
+renderTick : Tick -> Html Msg
+renderTick { y, rendering } = Html.div
   [ style "position" "fixed"
   , style "top" (String.fromFloat (y * 100) ++ "%")
   , style "left" "0"
@@ -594,7 +622,7 @@ view { events, window, width, height, moveRate, focused } =
         ]
   in div []
     ([ visibleEvents |> List.map renderEvent |> Html.div [ ]
-    , getTicks window |> List.map (renderTick window) |> Html.div []
+    , getTicks window |> List.map renderTick |> Html.div []
     , Html.input (stopped ++
       [ attribute "type" "range"
       , attribute "min" "-1"
