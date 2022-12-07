@@ -51,7 +51,7 @@ type alias Model =
   , width : Float
   , height : Float
   , focused : Maybe FadedScreenEvent
-  , stratigraphyData : Maybe Stratigraphy.StratigraphyDataDict
+  , stratigraphyData : Maybe Stratigraphy.DataDict
   }
 
 type alias FadedScreenEvent =
@@ -190,7 +190,7 @@ type Msg
   | MoveReleased
   | Viewport Float Float
   | FocusOn Event
-  | StratigraphyLoad (Result Http.Error Stratigraphy.StratigraphyDataDict)
+  | StratigraphyLoad (Result Http.Error Stratigraphy.DataDict)
   | StratigraphyIntervalsLoad (Result Http.Error Stratigraphy.IntervalDict)
 
 init : () -> (Model, Cmd Msg)
@@ -210,7 +210,7 @@ init _ = let window = initWindow present 100 in
     , Task.attempt viewportMsg getViewport
     , Http.get
       { url = Stratigraphy.timeline_data_url
-      , expect = Http.expectJson StratigraphyLoad Stratigraphy.decodeStratigraphyData
+      , expect = Http.expectJson StratigraphyLoad Stratigraphy.decodeData
       }
     ]
   )
@@ -259,7 +259,7 @@ update msg model =
         }
       , Http.get
         { url = Stratigraphy.time_interval_data_url
-        , expect = Http.expectJson StratigraphyIntervalsLoad Stratigraphy.decodeStratigraphyIntervals
+        , expect = Http.expectJson StratigraphyIntervalsLoad Stratigraphy.decodeIntervals
         }
       )
     StratigraphyIntervalsLoad (Err e) -> (model, Debug.log ("Failed to load intervals" ++ showError e) Cmd.none)
@@ -267,7 +267,7 @@ update msg model =
       Nothing -> (model, Cmd.none)
       Just data ->
         ( { model
-          | events = findScreenEvents model.window (Stratigraphy.stratigraphyEvents data ints)
+          | events = findScreenEvents model.window (Stratigraphy.events data ints)
           , stratigraphyData = Nothing
           }
         , Cmd.none

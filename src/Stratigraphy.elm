@@ -21,7 +21,7 @@ type alias StratigraphyData =
   }
 
 type FloatInterval = FloatInterval Float Float
-type alias StratigraphyDataDict = Dict.Dict String StratigraphyData
+type alias DataDict = Dict.Dict String StratigraphyData
 type alias IntervalDict = Dict.Dict String FloatInterval
 
 makeStratPair : String -> String -> String -> String -> List String -> List String -> (String, StratigraphyData)
@@ -36,27 +36,26 @@ decodeStratigraphy = D.map6 makeStratPair
   (D.field "narrow" (D.list D.string))
   (D.field "broad" (D.list D.string))
 
-decodeStratigraphyData : D.Decoder StratigraphyDataDict
-decodeStratigraphyData = D.map Dict.fromList <| D.list decodeStratigraphy
+decodeData : D.Decoder DataDict
+decodeData = D.map Dict.fromList <| D.list decodeStratigraphy
 
 decodeStratigraphyInterval : D.Decoder FloatInterval
 decodeStratigraphyInterval = D.map2 FloatInterval
   (D.field "hasBeginning" D.float)
   (D.field "hasEnd" D.float)
 
-decodeStratigraphyIntervals : D.Decoder IntervalDict
-decodeStratigraphyIntervals = D.dict decodeStratigraphyInterval
+decodeIntervals : D.Decoder IntervalDict
+decodeIntervals = D.dict decodeStratigraphyInterval
 
-stratigraphyEvents : StratigraphyDataDict -> IntervalDict -> List
+events : DataDict -> IntervalDict -> List
   { category : Int
   , time : Float
   , name : String
   }
-stratigraphyEvents dd ints =
+events dd ints =
   let
     present = 14e9
 
-    ids = Dict.keys dd
     addEvent : String -> StratigraphyData -> List {category:Int, time:Float,name:String} -> List {category:Int, time:Float,name:String}
     addEvent id std acc = case Dict.get id ints of
       Nothing -> acc
