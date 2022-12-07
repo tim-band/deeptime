@@ -1,6 +1,6 @@
 module Main exposing (main)
 
-import Basics
+import Basics exposing (..)
 import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
@@ -17,7 +17,9 @@ import Time
 import Time.Extra
 import Html.Events exposing (onClick)
 
+import Base exposing (..)
 import Stratigraphy
+import Event exposing (Event, Events, ScreenEvent)
 
 import Debug
 
@@ -29,21 +31,13 @@ main = Browser.element
   , view = view
   }
 
-type alias Time = Float
-type alias TimeDelta = Float
-
-type alias TimeWindow =
-  { top : Time
-  , bottom : Time
-  }
-
 initWindow : Time -> TimeDelta -> TimeWindow
 initWindow top size = { top = top, bottom = top - size }
 
 type MoveMode = MoveConstant | MoveToFocus
 
 type alias Model =
-  { events : Events
+  { events : Event.Events
   , moveMode : MoveMode
   , zoomRate : Float
   , moveRate : Float
@@ -55,7 +49,7 @@ type alias Model =
   }
 
 type alias FadedScreenEvent =
-  { sev : ScreenEvent
+  { sev : Event.ScreenEvent
   , fade : Float
   }
 
@@ -73,118 +67,15 @@ fadeDownFocused mfse = mfse |> Maybe.andThen (\fse ->
 updateFadedScreenEventY : Time -> TimeDelta ->FadedScreenEvent -> FadedScreenEvent
 updateFadedScreenEventY top height fsev = let ev = fsev.sev.ev in
   { sev =
-    { y = yEventPosition top height ev
+    { y = Event.yEventPosition top height ev
     , ev = ev
     }
   , fade = fsev.fade
   }
 
-type alias Event =
-  { category : Int
-  , time : Time
-  , name : String
-  }
-
-type alias ScreenEvent =
-  { y: Float
-  , ev: Event
-  }
-
-type alias Events =
-  { previousEvents : List Event  -- in reverse time order
-  , visibleEvents : List ScreenEvent
-  , nextEvents : List Event -- in forward order
-  }
-
-forwardEvents : List Event -> List Event
-forwardEvents = List.sortBy (\e -> -e.time)
-
-reverseEvents : List Event -> List Event
-reverseEvents = List.sortBy .time
-
-yEventPosition : Time -> TimeDelta -> Event -> Time
-yEventPosition top height ev = (top - ev.time) / height
-
-screenify : Time -> TimeDelta -> Event -> ScreenEvent
-screenify top height ev = { y = yEventPosition top height ev, ev = ev }
-
-findScreenEvents : TimeWindow -> List Event -> Events
-findScreenEvents window evs =
-  let
-    { top, bottom } = window
-    height = top - bottom
-    tooEarly { time } = time < bottom
-    tooLate { time } = top < time
-    justRight t = not (tooEarly t || tooLate t)
-    visibles = evs |> List.filter justRight |> List.map (screenify top height)
-  in
-    { previousEvents = List.filter tooEarly evs |> forwardEvents
-    , visibleEvents = visibles
-    , nextEvents = List.filter tooLate evs |> reverseEvents
-    }
-
-adjustScreenEvents : TimeWindow -> Events -> Events
-adjustScreenEvents { top, bottom } { previousEvents, visibleEvents, nextEvents } =
-  let
-    tooEarly { time } = time < bottom
-    tooLate { time } = top < time
-    (earlies1, notEarlies) = List.partition (.ev >> tooEarly) visibleEvents
-    earlies = List.map .ev earlies1 |> forwardEvents
-    (lates1, notLates) = List.partition (.ev >> tooLate) notEarlies
-    stillVisible = List.map .ev notLates
-    lates = List.map .ev lates1 |> reverseEvents
-    (stillPrevs, nowIn1) = List.partition tooEarly previousEvents
-    (stillNexts, nowIn2) = List.partition tooLate nextEvents
-    visible = nowIn1 ++ nowIn2 ++ stillVisible
-    height = top - bottom
-  in
-    { previousEvents = earlies ++ stillPrevs
-    , visibleEvents = List.map (screenify top height) visible
-    , nextEvents = lates ++ stillNexts
-    }
-
-randomJoin : Random.Generator (Random.Generator a) -> Random.Generator a
-randomJoin rr = rr |> Random.andThen (\r -> r)
-
-randomChar : Random.Generator Char
-randomChar = Random.int (Char.toCode 'a') (Char.toCode 'z') |> Random.map Char.fromCode
-
-randomCharList : Random.Generator (List Char)
-randomCharList = Random.weighted
-  (1, Random.constant [])
-  [(9, Random.map2 (::) randomChar (Random.lazy (\_ -> randomCharList)))]
-  |> randomJoin
-
-randomCharListMin : Int -> Random.Generator (List Char)
-randomCharListMin min = Random.map2 (++) (Random.list min randomChar) randomCharList
-
-randomString : Int -> Random.Generator String
-randomString min = Random.map String.fromList (randomCharListMin min)
-
-randomEvent : Time -> TimeDelta -> Random.Generator Event
-randomEvent max size = Random.int 0 4 |> Random.andThen (\cat ->
-  randomString 3 |> Random.andThen (\name ->
-  Random.float (max - size) max |> Random.map (\t ->
-  { category = cat, time = t, name = name })))
-
-present : Time
-present = 14e9
-
-bc1Time : Time
-bc1Time = present - 2022
-
-randomEvents : Random.Generator (List Event)
-randomEvents =
-  Random.list 999 (randomEvent present 1) |> Random.andThen (\es0 ->
-  Random.list 999 (randomEvent present 100) |> Random.andThen (\es1 ->
-  Random.list 999 (randomEvent present 1000) |> Random.andThen (\es2 ->
-  Random.list 999 (randomEvent present 10000) |> Random.andThen (\es3 ->
-  Random.list 999 (randomEvent present 100000) |> Random.andThen (\es4 ->
-  Random.constant (es0 ++ es1 ++ es2 ++ es3 ++ es4))))))
-
 type Msg
   = NoMsg
-  | SetEvents (List Event)
+  | SetEvents (List Event.Event)
   | NextFrame
   | Move Float
   | MoveReleased
@@ -195,7 +86,7 @@ type Msg
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
-  ( { events = findScreenEvents window []
+  ( { events = Event.findScreenEvents window []
     , moveMode = MoveConstant
     , zoomRate = 1
     , moveRate = 0
@@ -206,7 +97,7 @@ init _ = let window = initWindow present 100 in
     , stratigraphyData = Nothing
     }
   , Cmd.batch
-    [ Random.generate SetEvents randomEvents
+    [ Random.generate SetEvents Event.randomEvents
     , Task.attempt viewportMsg getViewport
     , Http.get
       { url = Stratigraphy.timeline_data_url
@@ -234,7 +125,7 @@ update msg model =
     NoMsg -> (model, Cmd.none)
     NextFrame -> (updateModel model, Cmd.none)
     SetEvents evs1 ->
-      ( { model | events = findScreenEvents model.window evs1 }
+      ( { model | events = Event.findScreenEvents model.window evs1 }
       , Cmd.none
       )
     Move d -> ({ model | moveMode = MoveConstant, moveRate = d }, Cmd.none)
@@ -247,7 +138,7 @@ update msg model =
         height = top - bottom
       in
         ({ model
-          | focused = Just { sev = screenify top height ev, fade = 2 }
+          | focused = Just { sev = Event.screenify top height ev, fade = 2 }
           , moveMode = MoveToFocus
           }
         , Cmd.none
@@ -267,7 +158,7 @@ update msg model =
       Nothing -> (model, Cmd.none)
       Just data ->
         ( { model
-          | events = findScreenEvents model.window (Stratigraphy.events data ints)
+          | events = Event.findScreenEvents model.window (Stratigraphy.events data ints)
           , stratigraphyData = Nothing
           }
         , Cmd.none
@@ -307,7 +198,7 @@ updateModel model =
     newHalf = half * zoomRate
     mid = Basics.max mid0 0
     window1 = { top = mid + newHalf, bottom = mid - newHalf }
-    events = adjustScreenEvents window1 model.events
+    events = Event.adjustScreenEvents window1 model.events
     middlest = getMiddlest events.visibleEvents
     focused1 = case moveMode of
       MoveToFocus -> focused

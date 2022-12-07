@@ -3,6 +3,8 @@ module Stratigraphy exposing (..)
 import Dict
 import Json.Decode as D
 
+import Base exposing (..)
+
 -- [{"id","name","fill","type","narrow":[],"broad":[]}]
 timeline_data_url: String
 timeline_data_url = "/resources/timeline_data.json"
@@ -54,8 +56,6 @@ events : DataDict -> IntervalDict -> List
   }
 events dd ints =
   let
-    present = 14e9
-
     addEvent : String -> StratigraphyData -> List {category:Int, time:Float,name:String} -> List {category:Int, time:Float,name:String}
     addEvent id std acc = case Dict.get id ints of
       Nothing -> acc
