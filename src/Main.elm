@@ -8,7 +8,8 @@ import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value)
 import Html.Events exposing (onInput, onMouseUp)
 import Http
-import List.Extra exposing (minimumBy)
+import List
+import List.Extra exposing (minimumBy, takeWhile)
 import Random
 import Svg
 import Svg.Attributes as Svga
@@ -22,6 +23,10 @@ import Stratigraphy
 import Event exposing (Event, Events, ScreenEvent)
 
 import Debug
+
+-- time (in seconds) between frames. The reciprocal of the frame rate
+frameDelta : Float
+frameDelta = 0.05
 
 main : Program () Model Msg
 main = Browser.element
@@ -180,6 +185,61 @@ getZoomRate minEvents maxEvents zoomRateMultiplier events moveDist =
       else 0
   in Basics.e ^ (zoomRateMultiplier * (stationaryRate + motionRate))
 
+getIndexOrLast : Int -> List a -> Maybe a
+getIndexOrLast n0 xs =
+  let
+    giol last n zs = case zs of
+      [] -> Just last
+      (y :: ys) -> if n == 0 then Just y else giol y (n - 1) ys
+  in case xs of
+    [] -> Nothing
+    (y :: ys) -> giol y (n0 - 1) ys
+
+getZoomRate2 : Events -> TimeWindow -> Float -> Float -> Float
+getZoomRate2 events window moveDist currentZoomRate =
+  let
+    minimalEventCount = 10
+    secondsLookahead = 1.2
+    idealProportionNewEventsPerSecond = 0.1
+    zoomRateCoefficient = 1
+    smoothingConstant = 0.3
+    visibleEventCount = List.length events.visibleEvents
+    hardMaxEvents = Basics.max 0 <| 200 - visibleEventCount
+    frameLookahead = secondsLookahead * frameDelta
+    height = window.top - window.bottom
+    mid = window.bottom + height / 2
+    timeIsClose t = if moveDist < 0
+      then window.bottom + moveDist * frameLookahead < t
+      else t < window.top + moveDist * frameLookahead
+    nextEventTimes = List.map .time <| if moveDist < 0
+      then events.previousEvents |> List.take hardMaxEvents
+      else events.nextEvents |> List.take hardMaxEvents
+    closeEventTimes = takeWhile timeIsClose nextEventTimes
+    totalEventCount = visibleEventCount + List.length closeEventTimes
+    desiredVisibleEventCount = round (
+      idealProportionNewEventsPerSecond * toFloat totalEventCount
+      ) + minimalEventCount
+    desiredExtraEventCount = desiredVisibleEventCount - visibleEventCount
+    idealHeight = if desiredExtraEventCount < 0
+      then height * (toFloat desiredVisibleEventCount / toFloat visibleEventCount)
+      else case getIndexOrLast desiredExtraEventCount nextEventTimes of
+        Nothing -> height
+        Just t -> t
+    ratio = idealHeight / height
+    logIdealZoomRate = zoomRateCoefficient * frameDelta * Basics.logBase Basics.e ratio
+    logCurrentZoomRate = Basics.logBase Basics.e currentZoomRate
+    logSmoothedZoomRate = logCurrentZoomRate + smoothingConstant * (logIdealZoomRate - logCurrentZoomRate)
+    maxDistance = if moveDist < 0
+      then case List.minimum nextEventTimes of
+        Nothing -> 10^9
+        Just t -> mid - t
+      else case List.maximum nextEventTimes of
+        Nothing -> 10^9
+        Just t -> t - mid
+    logMaxDistance = Basics.logBase Basics.e (maxDistance + 1)
+    clampedLogZoomRate = Basics.clamp -logMaxDistance logMaxDistance logSmoothedZoomRate
+  in Basics.e ^ clampedLogZoomRate
+
 updateModel : Model -> Model
 updateModel model =
   let
@@ -193,7 +253,7 @@ updateModel model =
           let
             halfWay = window.top - half
             force = (foc.sev.ev.time - halfWay) * 0.03
-          in (moveRate + force) * 0.80
+          in (moveRate + force) * 16 * frameDelta
     mid0 = window.top - half + moveRate1
     newHalf = half * zoomRate
     mid = Basics.max mid0 0
@@ -216,7 +276,8 @@ updateModel model =
     | window = window1
     , moveRate = moveRate1
     , events = events
-    , zoomRate = getZoomRate 10 30 0.001 events (moveRate1 * 1e-2)
+    --, zoomRate = getZoomRate 10 30 (0.02 * frameDelta) events (moveRate1 * 1e-2)
+    , zoomRate = getZoomRate2 events window1 moveRate1 zoomRate
     , focused = focused2
     }
 
@@ -224,7 +285,7 @@ subscriptions : Model -> Sub Msg
 subscriptions _ =
   Sub.batch
     [ onResize (\w h -> Viewport (toFloat w) (toFloat h))
-    , Time.every 20 (\_ -> NextFrame)
+    , Time.every (1 / frameDelta) (\_ -> NextFrame)
     ]
 
 renderEvent : ScreenEvent -> Html Msg
