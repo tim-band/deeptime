@@ -185,15 +185,17 @@ getZoomRate minEvents maxEvents zoomRateMultiplier events moveDist =
       else 0
   in Basics.e ^ (zoomRateMultiplier * (stationaryRate + motionRate))
 
-getIndexOrLast : Int -> List a -> Maybe a
-getIndexOrLast n0 xs =
+getInterpolatedAt : Float -> List Float -> Maybe Float
+getInterpolatedAt t0 xs =
   let
-    giol last n zs = case zs of
+    gia last t zs = case zs of
       [] -> Just last
-      (y :: ys) -> if n == 0 then Just y else giol y (n - 1) ys
+      (y :: ys) -> if 1 <= t then gia y (t - 1) ys else case ys of
+        [] -> Just y
+        (y1 :: _) -> Just (y + t * (y1 - y))
   in case xs of
     [] -> Nothing
-    (y :: ys) -> giol y (n0 - 1) ys
+    (y :: ys) -> gia y t0 ys
 
 getZoomRate2 : Events -> TimeWindow -> Float -> Float -> Float
 getZoomRate2 events window moveDist currentZoomRate =
@@ -202,7 +204,7 @@ getZoomRate2 events window moveDist currentZoomRate =
     secondsLookahead = 1.2
     idealProportionNewEventsPerSecond = 0.1
     zoomRateCoefficient = 1
-    smoothingConstant = 0.3
+    smoothingConstant = 0.1
     visibleEventCount = List.length events.visibleEvents
     hardMaxEvents = Basics.max 0 <| 200 - visibleEventCount
     frameLookahead = secondsLookahead * frameDelta
@@ -214,17 +216,29 @@ getZoomRate2 events window moveDist currentZoomRate =
     nextEventTimes = List.map .time <| if moveDist < 0
       then events.previousEvents |> List.take hardMaxEvents
       else events.nextEvents |> List.take hardMaxEvents
+    visibleEventTimes = List.map (\ev -> ev.ev.time) events.visibleEvents
+    -- extended (floating point) visible event count, including
+    -- a proportion of the next event depending on how close it is
+    visibleEventCountF = toFloat visibleEventCount + case nextEventTimes of
+      [] -> 0
+      (t :: _) -> if moveDist < 0
+        then case List.minimum visibleEventTimes of
+          Nothing -> 0
+          Just vt -> (vt - window.bottom) / (vt - t)
+        else case List.maximum visibleEventTimes of
+          Nothing -> 0
+          Just vt -> (window.top - vt) / (t - vt)
     closeEventTimes = takeWhile timeIsClose nextEventTimes
     totalEventCount = visibleEventCount + List.length closeEventTimes
-    desiredVisibleEventCount = round (
+    desiredVisibleEventCount =
       idealProportionNewEventsPerSecond * toFloat totalEventCount
-      ) + minimalEventCount
-    desiredExtraEventCount = desiredVisibleEventCount - visibleEventCount
+      + minimalEventCount
+    desiredExtraEventCount = desiredVisibleEventCount - visibleEventCountF
     idealHeight = if desiredExtraEventCount < 0
-      then height * (toFloat desiredVisibleEventCount / toFloat visibleEventCount)
-      else case getIndexOrLast desiredExtraEventCount nextEventTimes of
+      then height * (desiredVisibleEventCount / visibleEventCountF)
+      else case getInterpolatedAt desiredExtraEventCount nextEventTimes of
         Nothing -> height
-        Just t -> t
+        Just t -> 2 * abs (mid - t)
     ratio = idealHeight / height
     logIdealZoomRate = zoomRateCoefficient * frameDelta * Basics.logBase Basics.e ratio
     logCurrentZoomRate = Basics.logBase Basics.e currentZoomRate
@@ -256,7 +270,7 @@ updateModel model =
           in (moveRate + force) * 16 * frameDelta
     mid0 = window.top - half + moveRate1
     newHalf = half * zoomRate
-    mid = Basics.max mid0 0
+    mid = Basics.clamp 0 endTime mid0
     window1 = { top = mid + newHalf, bottom = mid - newHalf }
     events = Event.adjustScreenEvents window1 model.events
     middlest = getMiddlest events.visibleEvents

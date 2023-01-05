@@ -15,6 +15,9 @@ present = 14e9
 
 bc1Time : Time
 bc1Time = present - 2022
+
+endTime : Time
+endTime = present + 2100
 randomJoin : Random.Generator (Random.Generator a) -> Random.Generator a
 randomJoin rr = rr |> Random.andThen (\r -> r)
 
