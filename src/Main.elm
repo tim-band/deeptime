@@ -8,6 +8,7 @@ import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value)
 import Html.Events exposing (onInput, onMouseUp)
 import Http
+import Json.Decode as D
 import List
 import List.Extra exposing (minimumBy, takeWhile)
 import Random
@@ -50,6 +51,7 @@ type alias Model =
   , width : Float
   , height : Float
   , focused : Maybe FadedScreenEvent
+  , stratigraphyIntervals : Maybe Stratigraphy.IntervalDict
   , stratigraphyData : Maybe Stratigraphy.DataDict
   }
 
@@ -69,7 +71,7 @@ fadeDownFocused mfse = mfse |> Maybe.andThen (\fse ->
     then Nothing
     else Just { fse | fade = fade })
 
-updateFadedScreenEventY : Time -> TimeDelta ->FadedScreenEvent -> FadedScreenEvent
+updateFadedScreenEventY : Time -> TimeDelta -> FadedScreenEvent -> FadedScreenEvent
 updateFadedScreenEventY top height fsev = let ev = fsev.sev.ev in
   { sev =
     { top = Event.yEventTop top height ev
@@ -88,8 +90,7 @@ type Msg
   | MoveReleased
   | Viewport Float Float
   | FocusOn Event
-  | StratigraphyLoad (List String) (Result Http.Error Stratigraphy.DataDict)
-  | StratigraphyIntervalsLoad (List String) (Result Http.Error Stratigraphy.IntervalDict)
+  | DataLoad (List String) (String -> Model -> Result D.Error Model) (Result Http.Error String)
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
@@ -101,6 +102,7 @@ init _ = let window = initWindow present 100 in
     , width = 500
     , height = 500
     , focused = Nothing
+    , stratigraphyIntervals = Nothing
     , stratigraphyData = Nothing
     }
   , Cmd.batch
@@ -108,9 +110,13 @@ init _ = let window = initWindow present 100 in
     , Task.attempt viewportMsg getViewport
     , Http.get
       { url = Stratigraphy.timeline_data_url
-      , expect = Http.expectJson
-        (StratigraphyLoad Stratigraphy.timeline_data_url_alternatives)
-        Stratigraphy.decodeData
+      , expect = Http.expectString
+        (DataLoad Stratigraphy.timeline_data_url_alternatives stratigraphyDataUpdate)
+      }
+    , Http.get
+      { url = Stratigraphy.time_interval_data_url
+      , expect = Http.expectString
+        (DataLoad Stratigraphy.time_interval_data_url_alternatives stratigraphyIntervalsUpdate)
       }
     ]
   )
@@ -127,6 +133,32 @@ showError e = case e of
     Http.NetworkError -> "Network error"
     Http.BadStatus i -> "Failed: " ++ String.fromInt i
     Http.BadBody s -> "Bad body: " ++ s
+
+stratigraphyIntervalsUpdate : String -> Model -> Result D.Error Model
+stratigraphyIntervalsUpdate resp model =
+  let
+    res = D.decodeString Stratigraphy.decodeIntervals resp
+    updateStrat ints = case model.stratigraphyData of
+      Nothing -> { model | stratigraphyIntervals = Just ints }
+      Just data ->
+        { model
+        | events = Event.findScreenEvents model.window (Stratigraphy.events data ints)
+        , stratigraphyIntervals = Just ints
+        }
+  in Result.map updateStrat res
+
+stratigraphyDataUpdate : String -> Model -> Result D.Error Model
+stratigraphyDataUpdate resp model =
+  let
+    res = D.decodeString Stratigraphy.decodeData resp
+    updateStrat data = case model.stratigraphyIntervals of
+      Nothing -> { model | stratigraphyData = Just data }
+      Just ints ->
+        { model
+        | events = Event.findScreenEvents model.window (Stratigraphy.events data ints)
+        , stratigraphyIntervals = Just ints
+        }
+  in Result.map updateStrat res
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -152,46 +184,14 @@ update msg model =
           }
         , Cmd.none
         )
-    StratigraphyLoad [] (Err _) -> (model, Cmd.none)
-    StratigraphyLoad (url :: urls) (Err _) ->
-      ( model
-      , Http.get
+    DataLoad _ decode (Ok str) -> case decode str model of
+      Err err -> let _ = Debug.log "failed to decode" (D.errorToString err) in (model, Cmd.none)
+      Ok model1 -> (model1, Cmd.none)
+    DataLoad [] _ (Err err) -> let _ = Debug.log "failed to get" (showError err) in (model, Cmd.none)
+    DataLoad (url :: urls) decode (Err _) -> (model, Http.get
         { url = url
-        , expect = Http.expectJson
-          (StratigraphyLoad urls)
-          Stratigraphy.decodeData
-        }
-      )
-    StratigraphyLoad _ (Ok str) -> Debug.log "loaded strat data"
-      ( { model
-        | stratigraphyData = Just str
-        }
-      , Http.get
-        { url = Stratigraphy.time_interval_data_url
-        , expect = Http.expectJson
-          (StratigraphyIntervalsLoad Stratigraphy.time_interval_data_url_alternatives)
-          Stratigraphy.decodeIntervals
-        }
-      )
-    StratigraphyIntervalsLoad [] (Err e) -> (model, Debug.log ("Failed to load intervals" ++ showError e) Cmd.none)
-    StratigraphyIntervalsLoad (url :: urls) (Err _) ->
-      ( model
-      , Http.get
-        { url = url
-        , expect = Http.expectJson
-          (StratigraphyIntervalsLoad urls)
-          Stratigraphy.decodeIntervals
-        }
-      )
-    StratigraphyIntervalsLoad _ (Ok ints) -> case model.stratigraphyData of
-      Nothing -> (model, Cmd.none)
-      Just data ->
-        ( { model
-          | events = Event.findScreenEvents model.window (Stratigraphy.events data ints)
-          , stratigraphyData = Nothing
-          }
-        , Cmd.none
-        )
+        , expect = Http.expectString (DataLoad urls decode)
+        })
 
 getInterpolatedAt : Float -> List Float -> Maybe Float
 getInterpolatedAt t0 xs =
