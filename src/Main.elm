@@ -72,7 +72,9 @@ fadeDownFocused mfse = mfse |> Maybe.andThen (\fse ->
 updateFadedScreenEventY : Time -> TimeDelta ->FadedScreenEvent -> FadedScreenEvent
 updateFadedScreenEventY top height fsev = let ev = fsev.sev.ev in
   { sev =
-    { y = Event.yEventPosition top height ev
+    { top = Event.yEventTop top height ev
+    , bottom = Event.yEventBottom top height ev
+    , unclampedMiddle = Event.yEventMiddle top height ev
     , ev = ev
     }
   , fade = fsev.fade
@@ -86,8 +88,8 @@ type Msg
   | MoveReleased
   | Viewport Float Float
   | FocusOn Event
-  | StratigraphyLoad (Result Http.Error Stratigraphy.DataDict)
-  | StratigraphyIntervalsLoad (Result Http.Error Stratigraphy.IntervalDict)
+  | StratigraphyLoad (List String) (Result Http.Error Stratigraphy.DataDict)
+  | StratigraphyIntervalsLoad (List String) (Result Http.Error Stratigraphy.IntervalDict)
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
@@ -106,7 +108,9 @@ init _ = let window = initWindow present 100 in
     , Task.attempt viewportMsg getViewport
     , Http.get
       { url = Stratigraphy.timeline_data_url
-      , expect = Http.expectJson StratigraphyLoad Stratigraphy.decodeData
+      , expect = Http.expectJson
+        (StratigraphyLoad Stratigraphy.timeline_data_url_alternatives)
+        Stratigraphy.decodeData
       }
     ]
   )
@@ -148,18 +152,38 @@ update msg model =
           }
         , Cmd.none
         )
-    StratigraphyLoad (Err _) -> (model, Cmd.none)
-    StratigraphyLoad (Ok str) -> Debug.log "loaded strat data"
+    StratigraphyLoad [] (Err _) -> (model, Cmd.none)
+    StratigraphyLoad (url :: urls) (Err _) ->
+      ( model
+      , Http.get
+        { url = url
+        , expect = Http.expectJson
+          (StratigraphyLoad urls)
+          Stratigraphy.decodeData
+        }
+      )
+    StratigraphyLoad _ (Ok str) -> Debug.log "loaded strat data"
       ( { model
         | stratigraphyData = Just str
         }
       , Http.get
         { url = Stratigraphy.time_interval_data_url
-        , expect = Http.expectJson StratigraphyIntervalsLoad Stratigraphy.decodeIntervals
+        , expect = Http.expectJson
+          (StratigraphyIntervalsLoad Stratigraphy.time_interval_data_url_alternatives)
+          Stratigraphy.decodeIntervals
         }
       )
-    StratigraphyIntervalsLoad (Err e) -> (model, Debug.log ("Failed to load intervals" ++ showError e) Cmd.none)
-    StratigraphyIntervalsLoad (Ok ints) -> case model.stratigraphyData of
+    StratigraphyIntervalsLoad [] (Err e) -> (model, Debug.log ("Failed to load intervals" ++ showError e) Cmd.none)
+    StratigraphyIntervalsLoad (url :: urls) (Err _) ->
+      ( model
+      , Http.get
+        { url = url
+        , expect = Http.expectJson
+          (StratigraphyIntervalsLoad urls)
+          Stratigraphy.decodeIntervals
+        }
+      )
+    StratigraphyIntervalsLoad _ (Ok ints) -> case model.stratigraphyData of
       Nothing -> (model, Cmd.none)
       Just data ->
         ( { model
@@ -168,22 +192,6 @@ update msg model =
           }
         , Cmd.none
         )
-
-getZoomRate : Int -> Int -> Float -> Events -> Float -> Float
-getZoomRate minEvents maxEvents zoomRateMultiplier events moveDist =
-  let
-    visibleCount = List.length events.visibleEvents
-    stationaryRate = if visibleCount < minEvents
-      then toFloat (minEvents - visibleCount)
-      else if maxEvents < visibleCount
-      then toFloat (maxEvents - visibleCount)
-      else 0
-    motionRate = if moveDist < 1
-      then 1 - moveDist
-      else if 1 < moveDist
-      then moveDist - 1
-      else 0
-  in Basics.e ^ (zoomRateMultiplier * (stationaryRate + motionRate))
 
 getInterpolatedAt : Float -> List Float -> Maybe Float
 getInterpolatedAt t0 xs =
@@ -197,8 +205,11 @@ getInterpolatedAt t0 xs =
     [] -> Nothing
     (y :: ys) -> gia y t0 ys
 
-getZoomRate2 : Events -> TimeWindow -> Float -> Float -> Float
-getZoomRate2 events window moveDist currentZoomRate =
+midTime : Event -> Time
+midTime { start, end } = (start + end) / 2
+
+getZoomRate : Events -> TimeWindow -> Float -> Float -> Float
+getZoomRate events window moveDist currentZoomRate =
   let
     minimalEventCount = 10
     secondsLookahead = 1.2
@@ -213,10 +224,10 @@ getZoomRate2 events window moveDist currentZoomRate =
     timeIsClose t = if moveDist < 0
       then window.bottom + moveDist * frameLookahead < t
       else t < window.top + moveDist * frameLookahead
-    nextEventTimes = List.map .time <| if moveDist < 0
+    nextEventTimes = List.map midTime <| if moveDist < 0
       then events.previousEvents |> List.take hardMaxEvents
       else events.nextEvents |> List.take hardMaxEvents
-    visibleEventTimes = List.map (\ev -> ev.ev.time) events.visibleEvents
+    visibleEventTimes = List.map (\ev -> midTime ev.ev) events.visibleEvents
     -- extended (floating point) visible event count, including
     -- a proportion of the next event depending on how close it is
     visibleEventCountF = toFloat visibleEventCount + case nextEventTimes of
@@ -266,7 +277,7 @@ updateModel model =
         Just foc ->
           let
             halfWay = window.top - half
-            force = (foc.sev.ev.time - halfWay) * 0.03
+            force = (midTime foc.sev.ev - halfWay) * 0.03
           in (moveRate + force) * 16 * frameDelta
     mid0 = window.top - half + moveRate1
     newHalf = half * zoomRate
@@ -290,8 +301,7 @@ updateModel model =
     | window = window1
     , moveRate = moveRate1
     , events = events
-    --, zoomRate = getZoomRate 10 30 (0.02 * frameDelta) events (moveRate1 * 1e-2)
-    , zoomRate = getZoomRate2 events window1 moveRate1 zoomRate
+    , zoomRate = getZoomRate events window1 moveRate1 zoomRate
     , focused = focused2
     }
 
@@ -303,19 +313,23 @@ subscriptions _ =
     ]
 
 renderEvent : ScreenEvent -> Html Msg
-renderEvent e = div (eventAttrs e) [ text "*" ]
+renderEvent e = div (eventAttrs e) [text e.ev.name]
 
 eventPosX : Event -> Int
 eventPosX ev = 5 + ev.category * 5
 
 eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
-eventAttrs { y, ev } =
+eventAttrs { top, bottom, ev } =
   [ style "position" "fixed"
-  , style "top" (String.fromFloat (y * 100) ++ "%")
+  , style "top" (String.fromFloat (top * 100) ++ "%")
+  , style "height" (String.fromFloat ((bottom - top) * 100) ++ "%")
   , style "left" (String.fromInt (eventPosX ev) ++ "%")
+  , style "background" ev.fill
   , style "z-index" "2"
-  , style "transform" "translateY(-30%)"
   , style "cursor" "pointer"
+  , style "text-orientation" "mixed"
+  , style "writing-mode" "vertical-rl"
+  , style "overflow" "hidden"
   , onClick <| FocusOn ev
   ]
 
@@ -534,7 +548,7 @@ stringToMove speed s = case String.toFloat s of
   Nothing -> NoMsg
 
 getMiddlest : List ScreenEvent -> Maybe ScreenEvent
-getMiddlest = minimumBy (\{y} -> abs (0.5 - y))
+getMiddlest = minimumBy (\{ unclampedMiddle } -> abs (0.5 - unclampedMiddle))
 
 view : Model -> Html Msg
 view { events, window, width, height, moveRate, focused } =
@@ -570,7 +584,7 @@ view { events, window, width, height, moveRate, focused } =
           ]
           [ Svg.line
             [ toFloat (eventPosX sev.ev) / 100 * width |> Basics.round |> String.fromInt |> Svga.x1
-            , sev.y * height |> Basics.round |> String.fromInt |> Svga.y1
+            , (sev.top + sev.bottom) * 0.5 * height |> Basics.round |> String.fromInt |> Svga.y1
             , 0.4 * width |> Basics.round |> String.fromInt |> Svga.x2
             , 0.5 * height |> Basics.round |> String.fromInt |> Svga.y2
             , Svga.stroke "black"

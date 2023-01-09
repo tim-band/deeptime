@@ -6,13 +6,17 @@ import Base exposing (Time, TimeDelta, TimeWindow, randomString, present)
 
 type alias Event =
   { category : Int
-  , time : Time
+  , start : Time
+  , end : Time
   , name : String
+  , fill : String
   }
 
 type alias ScreenEvent =
-  { y: Float
-  , ev: Event
+  { top : Float
+  , bottom : Float
+  , unclampedMiddle : Float
+  , ev : Event
   }
 
 type alias Events =
@@ -25,27 +29,38 @@ randomEvent : Time -> TimeDelta -> Random.Generator Event
 randomEvent max size = Random.int 0 4 |> Random.andThen (\cat ->
   randomString 3 |> Random.andThen (\name ->
   Random.float (max - size) max |> Random.map (\t ->
-  { category = cat, time = t, name = name })))
+  { category = cat, end = t, start = t - 0.1, name = name, fill = "#4499EE" })))
 
 forwardEvents : List Event -> List Event
-forwardEvents = List.sortBy (\e -> -e.time)
+forwardEvents = List.sortBy (\e -> -e.start - e.end)
 
 reverseEvents : List Event -> List Event
-reverseEvents = List.sortBy .time
+reverseEvents = List.sortBy .start
 
-yEventPosition : Time -> TimeDelta -> Event -> Time
-yEventPosition top height ev = (top - ev.time) / height
+yEventTop : Time -> TimeDelta -> Event -> Time
+yEventTop top height ev = max 0 <| (top - ev.end) / height
+
+yEventBottom : Time -> TimeDelta -> Event -> Time
+yEventBottom top height ev = min 1 <| (top - ev.start) / height
+
+yEventMiddle : Time -> TimeDelta -> Event -> Time
+yEventMiddle top height ev = (top - (ev.start + ev.end) / 2) / height
 
 screenify : Time -> TimeDelta -> Event -> ScreenEvent
-screenify top height ev = { y = yEventPosition top height ev, ev = ev }
+screenify top height ev =
+  { top = yEventTop top height ev
+  , bottom = yEventBottom top height ev
+  , unclampedMiddle = yEventMiddle top height ev
+  , ev = ev
+  }
 
 findScreenEvents : TimeWindow -> List Event -> Events
 findScreenEvents window evs =
   let
     { top, bottom } = window
     height = top - bottom
-    tooEarly { time } = time < bottom
-    tooLate { time } = top < time
+    tooEarly { end } = end < bottom
+    tooLate { start } = top < start
     justRight t = not (tooEarly t || tooLate t)
     visibles = evs |> List.filter justRight |> List.map (screenify top height)
   in
@@ -57,8 +72,8 @@ findScreenEvents window evs =
 adjustScreenEvents : TimeWindow -> Events -> Events
 adjustScreenEvents { top, bottom } { previousEvents, visibleEvents, nextEvents } =
   let
-    tooEarly { time } = time < bottom
-    tooLate { time } = top < time
+    tooEarly { end } = end < bottom
+    tooLate { start } = top < start
     (earlies1, notEarlies) = List.partition (.ev >> tooEarly) visibleEvents
     earlies = List.map .ev earlies1 |> forwardEvents
     (lates1, notLates) = List.partition (.ev >> tooLate) notEarlies

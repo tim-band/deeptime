@@ -5,13 +5,19 @@ import Json.Decode as D
 
 import Base exposing (..)
 
+import Event exposing (Event)
+
 -- [{"id","name","fill","type","narrow":[],"broad":[]}]
-timeline_data_url: String
-timeline_data_url = "/resources/timeline_data.json"
+timeline_data_url : String
+timeline_data_url = "resources/timeline_data.json"
+timeline_data_url_alternatives =
+  [ "/resources/timeline_data.json" ]
 --timeline_data_url = "https://github.com/CSIRO-enviro-informatics/interactive-geological-timescale/blob/master/src/assets/timeline_data.json"
 -- {id:{"hasBeginning": float, "hasEnd": float}}
-time_interval_data_url: String
-time_interval_data_url = "/resources/time_interval_data.json"
+time_interval_data_url : String
+time_interval_data_url = "resources/time_interval_data.json"
+time_interval_data_url_alternatives =
+  [ "/resources/time_interval_data.json" ]
 --time_interval_data_url = "https://github.com/CSIRO-enviro-informatics/interactive-geological-timescale/blob/master/src/assets/time_interval_data.json"
 
 type alias StratigraphyData =
@@ -25,6 +31,17 @@ type alias StratigraphyData =
 type FloatInterval = FloatInterval Float Float
 type alias DataDict = Dict.Dict String StratigraphyData
 type alias IntervalDict = Dict.Dict String FloatInterval
+
+categoryDict : Dict.Dict String Int
+categoryDict = Dict.fromList
+  [ ("super-eon", 0)
+  , ("eon", 1)
+  , ("era", 2)
+  , ("period", 3)
+  , ("epoch", 4)
+  , ("epoch sub-epoch", 5)
+  , ("age", 6)
+  ]
 
 makeStratPair : String -> String -> String -> String -> List String -> List String -> (String, StratigraphyData)
 makeStratPair id name f t n b = (id, { name=name, fill=f, type_=t, narrow=n, broad=b })
@@ -49,19 +66,19 @@ decodeStratigraphyInterval = D.map2 FloatInterval
 decodeIntervals : D.Decoder IntervalDict
 decodeIntervals = D.dict decodeStratigraphyInterval
 
-events : DataDict -> IntervalDict -> List
-  { category : Int
-  , time : Float
-  , name : String
-  }
+events : DataDict -> IntervalDict -> List Event
 events dd ints =
   let
-    addEvent : String -> StratigraphyData -> List {category:Int, time:Float,name:String} -> List {category:Int, time:Float,name:String}
+    addEvent : String -> StratigraphyData -> List Event -> List Event
     addEvent id std acc = case Dict.get id ints of
       Nothing -> acc
       Just (FloatInterval start end) ->
-        { category = 1
-        , time = present - (start + end) * 5e5
+        { category = case Dict.get std.type_ categoryDict of
+          Nothing -> 6
+          Just c -> c
+        , start = present - start * 10e5
+        , end = present - end * 10e5
         , name = std.name
+        , fill = std.fill
         } :: acc
   in Dict.foldr addEvent [] dd
