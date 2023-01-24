@@ -24,6 +24,7 @@ import Stratigraphy
 import Event exposing (Event, Events, ScreenEvent)
 
 import Debug
+import Geography
 
 -- time (in seconds) between frames. The reciprocal of the frame rate
 frameDelta : Float
@@ -90,7 +91,7 @@ type Msg
   | MoveReleased
   | Viewport Float Float
   | FocusOn Event
-  | DataLoad (List String) (String -> Model -> Result D.Error Model) (Result Http.Error String)
+  | DataLoad (String -> Model -> (Result D.Error Model, Cmd Msg)) (Result Http.Error String)
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
@@ -111,12 +112,12 @@ init _ = let window = initWindow present 100 in
     , Http.get
       { url = Stratigraphy.timeline_data_url
       , expect = Http.expectString
-        (DataLoad Stratigraphy.timeline_data_url_alternatives stratigraphyDataUpdate)
+        (DataLoad stratigraphyDataUpdate)
       }
     , Http.get
       { url = Stratigraphy.time_interval_data_url
       , expect = Http.expectString
-        (DataLoad Stratigraphy.time_interval_data_url_alternatives stratigraphyIntervalsUpdate)
+        (DataLoad stratigraphyIntervalsUpdate)
       }
     ]
   )
@@ -134,7 +135,7 @@ showError e = case e of
     Http.BadStatus i -> "Failed: " ++ String.fromInt i
     Http.BadBody s -> "Bad body: " ++ s
 
-stratigraphyIntervalsUpdate : String -> Model -> Result D.Error Model
+stratigraphyIntervalsUpdate : String -> Model -> (Result D.Error Model, Cmd Msg)
 stratigraphyIntervalsUpdate resp model =
   let
     res = D.decodeString Stratigraphy.decodeIntervals resp
@@ -142,12 +143,13 @@ stratigraphyIntervalsUpdate resp model =
       Nothing -> { model | stratigraphyIntervals = Just ints }
       Just data ->
         { model
-        | events = Event.findScreenEvents model.window (Stratigraphy.events data ints)
+        | events = Event.findScreenEvents model.window <|
+          Geography.geography :: Stratigraphy.events data ints
         , stratigraphyIntervals = Just ints
         }
-  in Result.map updateStrat res
+  in (Result.map updateStrat res, Cmd.none)
 
-stratigraphyDataUpdate : String -> Model -> Result D.Error Model
+stratigraphyDataUpdate : String -> Model -> (Result D.Error Model, Cmd Msg)
 stratigraphyDataUpdate resp model =
   let
     res = D.decodeString Stratigraphy.decodeData resp
@@ -155,10 +157,16 @@ stratigraphyDataUpdate resp model =
       Nothing -> { model | stratigraphyData = Just data }
       Just ints ->
         { model
-        | events = Event.findScreenEvents model.window (Stratigraphy.events data ints)
+        | events = Event.findScreenEvents model.window <|
+          Geography.geography :: Stratigraphy.events data ints
         , stratigraphyIntervals = Just ints
         }
-  in Result.map updateStrat res
+  in (Result.map updateStrat res, Cmd.none)
+
+onScreen : TimeWindow -> Maybe FadedScreenEvent -> Bool
+onScreen { top, bottom } mfse = case mfse of
+  Nothing -> False
+  Just { sev } -> bottom <= sev.ev.end && sev.ev.start <= top
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -169,7 +177,11 @@ update msg model =
       ( { model | events = Event.findScreenEvents model.window evs1 }
       , Cmd.none
       )
-    Move d -> ({ model | moveMode = MoveConstant, moveRate = d }, Cmd.none)
+    Move d -> (
+      { model
+      | moveMode = if onScreen model.window model.focused then MoveToFocus else MoveConstant
+      , moveRate = d
+      }, Cmd.none)
     -- just stop when released for now
     MoveReleased -> ({ model | moveRate = 0 }, Cmd.none)
     Viewport width height -> ({ model | width = width, height = height }, Cmd.none)
@@ -184,14 +196,10 @@ update msg model =
           }
         , Cmd.none
         )
-    DataLoad _ decode (Ok str) -> case decode str model of
-      Err err -> let _ = Debug.log "failed to decode" (D.errorToString err) in (model, Cmd.none)
-      Ok model1 -> (model1, Cmd.none)
-    DataLoad [] _ (Err err) -> let _ = Debug.log "failed to get" (showError err) in (model, Cmd.none)
-    DataLoad (url :: urls) decode (Err _) -> (model, Http.get
-        { url = url
-        , expect = Http.expectString (DataLoad urls decode)
-        })
+    DataLoad decode (Ok str) -> case decode str model of
+      (Err err, cmd) -> let _ = Debug.log "failed to decode" (D.errorToString err) in (model, cmd)
+      (Ok model1, cmd) -> (model1, cmd)
+    DataLoad _ (Err err) -> let _ = Debug.log "failed to get" (showError err) in (model, Cmd.none)
 
 getInterpolatedAt : Float -> List Float -> Maybe Float
 getInterpolatedAt t0 xs =
@@ -256,10 +264,10 @@ getZoomRate events window moveDist currentZoomRate =
     logSmoothedZoomRate = logCurrentZoomRate + smoothingConstant * (logIdealZoomRate - logCurrentZoomRate)
     maxDistance = if moveDist < 0
       then case List.minimum nextEventTimes of
-        Nothing -> 10^9
+        Nothing -> 1e9
         Just t -> mid - t
       else case List.maximum nextEventTimes of
-        Nothing -> 10^9
+        Nothing -> 1e9
         Just t -> t - mid
     logMaxDistance = Basics.logBase Basics.e (maxDistance + 1)
     clampedLogZoomRate = Basics.clamp -logMaxDistance logMaxDistance logSmoothedZoomRate
@@ -277,7 +285,11 @@ updateModel model =
         Just foc ->
           let
             halfWay = window.top - half
-            force = (midTime foc.sev.ev - halfWay) * 0.03
+            e = foc.sev.ev
+            nearPointIndex = Event.pointIndex halfWay e |> toFloat
+            pointCount = toFloat e.pointCount
+            nearPoint = e.start + (e.end - e.start) * nearPointIndex / pointCount
+            force = (nearPoint - halfWay) * 0.03
           in (moveRate + force) * 16 * frameDelta
     mid0 = window.top - half + moveRate1
     newHalf = half * zoomRate
@@ -313,10 +325,10 @@ subscriptions _ =
     ]
 
 renderEvent : ScreenEvent -> Html Msg
-renderEvent e = div (eventAttrs e) [text e.ev.name]
+renderEvent e = div (eventAttrs e) [ text e.ev.name ]
 
 eventPosX : Event -> Int
-eventPosX ev = 5 + ev.category * 5
+eventPosX ev = 5 + ev.category * 4
 
 eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
 eventAttrs { top, bottom, ev } =
@@ -330,6 +342,7 @@ eventAttrs { top, bottom, ev } =
   , style "text-orientation" "mixed"
   , style "writing-mode" "vertical-rl"
   , style "overflow" "hidden"
+  , style "color" ev.color
   , onClick <| FocusOn ev
   ]
 
@@ -554,6 +567,7 @@ view : Model -> Html Msg
 view { events, window, width, height, moveRate, focused } =
   let
     timeHeight = window.top - window.bottom
+    timeMiddle = window.bottom + timeHeight / 2
     sliderWidth = 30
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
@@ -597,7 +611,10 @@ view { events, window, width, height, moveRate, focused } =
             , style "top" "50%"
             , style "transform" "translateY(-50%)"
             , style "opacity" opacity
-            ] [ text sev.ev.name ]
+            ]
+            [ Event.pointIndex timeMiddle sev.ev |> sev.ev.renderPoint
+            |> Html.map (\_ -> NoMsg)
+            ]
           ]
         ]
   in div []

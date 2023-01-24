@@ -3,6 +3,7 @@ module Event exposing (..)
 import Random
 
 import Base exposing (Time, TimeDelta, TimeWindow, randomString, present)
+import Html
 
 type alias Event =
   { category : Int
@@ -10,6 +11,9 @@ type alias Event =
   , end : Time
   , name : String
   , fill : String
+  , color : String
+  , pointCount : Int
+  , renderPoint : Int -> Html.Html ()
   }
 
 type alias ScreenEvent =
@@ -25,11 +29,25 @@ type alias Events =
   , nextEvents : List Event -- in forward order
   }
 
+pointIndex : Float -> Event -> Int
+pointIndex t { start, end, pointCount } =
+  let
+    n = (toFloat pointCount) * (t - start) / (end - start) |> Basics.round
+  in Basics.clamp 0 (pointCount - 1) n
+
 randomEvent : Time -> TimeDelta -> Random.Generator Event
 randomEvent max size = Random.int 0 4 |> Random.andThen (\cat ->
   randomString 3 |> Random.andThen (\name ->
   Random.float (max - size) max |> Random.map (\t ->
-  { category = cat, end = t, start = t - 0.1, name = name, fill = "#4499EE" })))
+  { category = cat
+  , end = t
+  , start = t - 0.1
+  , name = name
+  , fill = "#4499EE"
+  , color = "white"
+  , pointCount = 1
+  , renderPoint = \_ -> Html.text name
+  })))
 
 forwardEvents : List Event -> List Event
 forwardEvents = List.sortBy (\e -> -e.start - e.end)
@@ -97,4 +115,3 @@ randomEvents =
   Random.list 999 (randomEvent present 10000) |> Random.andThen (\es3 ->
   Random.list 999 (randomEvent present 100000) |> Random.andThen (\es4 ->
   Random.constant (es0 ++ es1 ++ es2 ++ es3 ++ es4))))))
-

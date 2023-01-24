@@ -2,22 +2,18 @@ module Stratigraphy exposing (..)
 
 import Dict
 import Json.Decode as D
+import Html
 
 import Base exposing (..)
-
 import Event exposing (Event)
 
 -- [{"id","name","fill","type","narrow":[],"broad":[]}]
 timeline_data_url : String
 timeline_data_url = "resources/timeline_data.json"
-timeline_data_url_alternatives =
-  [ "/resources/timeline_data.json" ]
 --timeline_data_url = "https://github.com/CSIRO-enviro-informatics/interactive-geological-timescale/blob/master/src/assets/timeline_data.json"
 -- {id:{"hasBeginning": float, "hasEnd": float}}
 time_interval_data_url : String
 time_interval_data_url = "resources/time_interval_data.json"
-time_interval_data_url_alternatives =
-  [ "/resources/time_interval_data.json" ]
 --time_interval_data_url = "https://github.com/CSIRO-enviro-informatics/interactive-geological-timescale/blob/master/src/assets/time_interval_data.json"
 
 type alias StratigraphyData =
@@ -76,9 +72,12 @@ events dd ints =
         { category = case Dict.get std.type_ categoryDict of
           Nothing -> 6
           Just c -> c
-        , start = present - start * 10e5
-        , end = present - end * 10e5
+        , start = present - start * 1e6
+        , end = present - end * 1e6
         , name = std.name
         , fill = std.fill
+        , color = "black"
+        , pointCount = 1
+        , renderPoint = \_ -> Html.text std.name
         } :: acc
   in Dict.foldr addEvent [] dd
