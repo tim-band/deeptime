@@ -8,12 +8,12 @@ import Event exposing (Event)
 
 geography : Event
 geography =
-  { name = "geography"
-  , category = 7
+  { name = "Geography"
+  , category = 0
   , start = present - 4.1e9
   , end = present
   , fill = "#604010"
-  , color = "white"
+  , color = "yellow"
   , pointCount = 42
   , renderPoint = \i -> Html.img
     [ attribute "src"

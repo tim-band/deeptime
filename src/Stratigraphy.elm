@@ -70,8 +70,8 @@ events dd ints =
       Nothing -> acc
       Just (FloatInterval start end) ->
         { category = case Dict.get std.type_ categoryDict of
-          Nothing -> 6
-          Just c -> c
+          Nothing -> 7
+          Just c -> c + 1
         , start = present - start * 1e6
         , end = present - end * 1e6
         , name = std.name

@@ -7,6 +7,7 @@ import Browser.Events exposing (onResize)
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value)
 import Html.Events exposing (onInput, onMouseUp)
+import Html.Keyed
 import Http
 import Json.Decode as D
 import List
@@ -41,7 +42,7 @@ main = Browser.element
 initWindow : Time -> TimeDelta -> TimeWindow
 initWindow top size = { top = top, bottom = top - size }
 
-type MoveMode = MoveConstant | MoveToFocus
+type MoveMode = MoveFreeFocus | MoveKeepFocus | MoveToFocus
 
 type alias Model =
   { events : Event.Events
@@ -96,7 +97,7 @@ type Msg
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
   ( { events = Event.findScreenEvents window []
-    , moveMode = MoveConstant
+    , moveMode = MoveFreeFocus
     , zoomRate = 1
     , moveRate = 0
     , window = window
@@ -170,7 +171,12 @@ onScreen { top, bottom } mfse = case mfse of
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
-  case msg of
+  let
+    focusedEventStillVisible = onScreen model.window model.focused
+    nextFocus = if focusedEventStillVisible
+      then MoveKeepFocus
+      else MoveFreeFocus
+  in case msg of
     NoMsg -> (model, Cmd.none)
     NextFrame -> (updateModel model, Cmd.none)
     SetEvents evs1 ->
@@ -179,7 +185,13 @@ update msg model =
       )
     Move d -> (
       { model
-      | moveMode = if onScreen model.window model.focused then MoveToFocus else MoveConstant
+      | moveMode = case model.moveMode of
+        MoveFreeFocus -> MoveFreeFocus
+        MoveToFocus -> nextFocus
+        MoveKeepFocus -> nextFocus
+      , focused = if focusedEventStillVisible
+        then model.focused
+        else Debug.log "dropped" Nothing
       , moveRate = d
       }, Cmd.none)
     -- just stop when released for now
@@ -191,7 +203,7 @@ update msg model =
         height = top - bottom
       in
         ({ model
-          | focused = Just { sev = Event.screenify top height ev, fade = 2 }
+          | focused = Just { sev = Event.screenify top height (Debug.log ev.name ev), fade = 2 }
           , moveMode = MoveToFocus
           }
         , Cmd.none
@@ -279,17 +291,20 @@ updateModel model =
     { zoomRate, moveMode, moveRate, window, focused } = model
     half = (window.top - window.bottom) / 2
     moveRate1 = case moveMode of
-      MoveConstant -> moveRate
+      MoveFreeFocus -> moveRate
+      MoveKeepFocus -> moveRate
       MoveToFocus -> case focused of
         Nothing -> moveRate
         Just foc ->
           let
             halfWay = window.top - half
             e = foc.sev.ev
-            nearPointIndex = Event.pointIndex halfWay e |> toFloat
-            pointCount = toFloat e.pointCount
-            nearPoint = e.start + (e.end - e.start) * nearPointIndex / pointCount
-            force = (nearPoint - halfWay) * 0.03
+            dist = if halfWay < e.start
+              then e.start - halfWay
+              else if e.end < halfWay
+              then e.end - halfWay
+              else 0
+            force = dist * 0.03
           in (moveRate + force) * 16 * frameDelta
     mid0 = window.top - half + moveRate1
     newHalf = half * zoomRate
@@ -299,7 +314,8 @@ updateModel model =
     middlest = getMiddlest events.visibleEvents
     focused1 = case moveMode of
       MoveToFocus -> focused
-      MoveConstant -> case focused of
+      MoveKeepFocus -> if onScreen window focused then focused else Debug.log "dropped" Nothing
+      MoveFreeFocus -> case focused of
         Nothing -> Maybe.map (\e -> { sev = e, fade = 0 }) middlest
         Just foc0 ->
           case middlest of
@@ -324,8 +340,11 @@ subscriptions _ =
     , Time.every (1 / frameDelta) (\_ -> NextFrame)
     ]
 
-renderEvent : ScreenEvent -> Html Msg
-renderEvent e = div (eventAttrs e) [ text e.ev.name ]
+renderEvent : ScreenEvent -> (String, Html Msg)
+renderEvent e =
+  ( "event_" ++ e.ev.name
+  , div (eventAttrs e) [ text e.ev.name ]
+  )
 
 eventPosX : Event -> Int
 eventPosX ev = 5 + ev.category * 4
@@ -618,7 +637,7 @@ view { events, window, width, height, moveRate, focused } =
           ]
         ]
   in div []
-    ([ visibleEvents |> List.map renderEvent |> Html.div [ ]
+    ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
     , getTicks window |> List.map renderTick |> Html.div []
     , Html.input (stopped ++
       [ attribute "type" "range"
