@@ -10,7 +10,7 @@ geography : Event
 geography =
   { name = "Geography"
   , category = 0
-  , start = present - 4.1e9
+  , start = present - 410e6
   , end = present
   , fill = "#604010"
   , color = "yellow"

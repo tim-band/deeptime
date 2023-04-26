@@ -191,7 +191,7 @@ update msg model =
         MoveKeepFocus -> nextFocus
       , focused = if focusedEventStillVisible
         then model.focused
-        else Debug.log "dropped" Nothing
+        else Nothing
       , moveRate = d
       }, Cmd.none)
     -- just stop when released for now
@@ -203,7 +203,7 @@ update msg model =
         height = top - bottom
       in
         ({ model
-          | focused = Just { sev = Event.screenify top height (Debug.log ev.name ev), fade = 2 }
+          | focused = Just { sev = Event.screenify top height ev, fade = 2 }
           , moveMode = MoveToFocus
           }
         , Cmd.none
@@ -213,6 +213,7 @@ update msg model =
       (Ok model1, cmd) -> (model1, cmd)
     DataLoad _ (Err err) -> let _ = Debug.log "failed to get" (showError err) in (model, Cmd.none)
 
+-- Gets the t'th position in the list xs, but interpolated
 getInterpolatedAt : Float -> List Float -> Maybe Float
 getInterpolatedAt t0 xs =
   let
@@ -229,22 +230,25 @@ midTime : Event -> Time
 midTime { start, end } = (start + end) / 2
 
 getZoomRate : Events -> TimeWindow -> Float -> Float -> Float
-getZoomRate events window moveDist currentZoomRate =
+getZoomRate events window moveRate currentZoomRate =
   let
+    maximumScreensPerSecond = 1.5
     minimalEventCount = 10
     secondsLookahead = 1.2
     idealProportionNewEventsPerSecond = 0.1
     zoomRateCoefficient = 1
+    -- smoothingConstant 0: never change, 1: instantly change
     smoothingConstant = 0.1
+    minimumHeight = Basics.abs moveRate / maximumScreensPerSecond
     visibleEventCount = List.length events.visibleEvents
     hardMaxEvents = Basics.max 0 <| 200 - visibleEventCount
     frameLookahead = secondsLookahead * frameDelta
     height = window.top - window.bottom
     mid = window.bottom + height / 2
-    timeIsClose t = if moveDist < 0
-      then window.bottom + moveDist * frameLookahead < t
-      else t < window.top + moveDist * frameLookahead
-    nextEventTimes = List.map midTime <| if moveDist < 0
+    timeIsClose t = if moveRate < 0
+      then window.bottom + moveRate * frameLookahead < t
+      else t < window.top + moveRate * frameLookahead
+    nextEventTimes = List.map midTime <| if moveRate < 0
       then events.previousEvents |> List.take hardMaxEvents
       else events.nextEvents |> List.take hardMaxEvents
     visibleEventTimes = List.map (\ev -> midTime ev.ev) events.visibleEvents
@@ -252,7 +256,7 @@ getZoomRate events window moveDist currentZoomRate =
     -- a proportion of the next event depending on how close it is
     visibleEventCountF = toFloat visibleEventCount + case nextEventTimes of
       [] -> 0
-      (t :: _) -> if moveDist < 0
+      (t :: _) -> if moveRate < 0
         then case List.minimum visibleEventTimes of
           Nothing -> 0
           Just vt -> (vt - window.bottom) / (vt - t)
@@ -270,11 +274,11 @@ getZoomRate events window moveDist currentZoomRate =
       else case getInterpolatedAt desiredExtraEventCount nextEventTimes of
         Nothing -> height
         Just t -> 2 * abs (mid - t)
-    ratio = idealHeight / height
+    ratio = max minimumHeight idealHeight / height
     logIdealZoomRate = zoomRateCoefficient * frameDelta * Basics.logBase Basics.e ratio
     logCurrentZoomRate = Basics.logBase Basics.e currentZoomRate
     logSmoothedZoomRate = logCurrentZoomRate + smoothingConstant * (logIdealZoomRate - logCurrentZoomRate)
-    maxDistance = if moveDist < 0
+    maxDistance = if moveRate < 0
       then case List.minimum nextEventTimes of
         Nothing -> 1e9
         Just t -> mid - t
@@ -305,8 +309,8 @@ updateModel model =
               then e.end - halfWay
               else 0
             force = dist * 0.03
-          in (moveRate + force) * 16 * frameDelta
-    mid0 = window.top - half + moveRate1
+          in moveRate + force * 16 * frameDelta
+    mid0 = window.top - half + moveRate1 * frameDelta
     newHalf = half * zoomRate
     mid = Basics.clamp 0 endTime mid0
     window1 = { top = mid + newHalf, bottom = mid - newHalf }
@@ -314,7 +318,7 @@ updateModel model =
     middlest = getMiddlest events.visibleEvents
     focused1 = case moveMode of
       MoveToFocus -> focused
-      MoveKeepFocus -> if onScreen window focused then focused else Debug.log "dropped" Nothing
+      MoveKeepFocus -> if onScreen window focused then focused else Nothing
       MoveFreeFocus -> case focused of
         Nothing -> Maybe.map (\e -> { sev = e, fade = 0 }) middlest
         Just foc0 ->
@@ -644,7 +648,7 @@ view { events, window, width, height, moveRate, focused } =
       , attribute "min" "-1"
       , attribute "max" "1"
       , attribute "step" "0.01"
-      , onInput <| stringToMove (timeHeight * 0.1)
+      , onInput <| stringToMove timeHeight
       , onMouseUp MoveReleased
       , style "position" "fixed"
       , style "top" "0"
