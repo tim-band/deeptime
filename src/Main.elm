@@ -21,8 +21,9 @@ import Time.Extra
 import Html.Events exposing (onClick)
 
 import Base exposing (..)
-import Stratigraphy
 import Event exposing (Event, Events, ScreenEvent)
+import Human
+import Stratigraphy
 
 import Debug
 import Geography
@@ -96,7 +97,7 @@ type Msg
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
-  ( { events = Event.findScreenEvents window []
+  ( { events = Event.findScreenEvents window [Geography.geography]
     , moveMode = MoveFreeFocus
     , zoomRate = 1
     , moveRate = 0
@@ -119,6 +120,11 @@ init _ = let window = initWindow present 100 in
       { url = Stratigraphy.time_interval_data_url
       , expect = Http.expectString
         (DataLoad stratigraphyIntervalsUpdate)
+      }
+    , Http.get
+      { url = Human.evolution_events_url
+      , expect = Http.expectString
+        (DataLoad humanEvolutionUpdate)
       }
     ]
   )
@@ -144,8 +150,9 @@ stratigraphyIntervalsUpdate resp model =
       Nothing -> { model | stratigraphyIntervals = Just ints }
       Just data ->
         { model
-        | events = Event.findScreenEvents model.window <|
-          Geography.geography :: Stratigraphy.events data ints
+        | events = Event.mergeScreenEvents model.events <|
+          Event.findScreenEvents model.window <|
+          Stratigraphy.events data ints
         , stratigraphyIntervals = Just ints
         }
   in (Result.map updateStrat res, Cmd.none)
@@ -158,11 +165,23 @@ stratigraphyDataUpdate resp model =
       Nothing -> { model | stratigraphyData = Just data }
       Just ints ->
         { model
-        | events = Event.findScreenEvents model.window <|
-          Geography.geography :: Stratigraphy.events data ints
+        | events = Event.mergeScreenEvents model.events <|
+          Event.findScreenEvents model.window <|
+          Stratigraphy.events data ints
         , stratigraphyIntervals = Just ints
         }
   in (Result.map updateStrat res, Cmd.none)
+
+humanEvolutionUpdate : String -> Model -> (Result D.Error Model, Cmd Msg)
+humanEvolutionUpdate resp model =
+  let
+    res = D.decodeString Human.decode resp
+    updateHuman events = 
+      { model
+      | events = Event.mergeScreenEvents model.events <|
+        Event.findScreenEvents model.window events
+      }
+  in (Result.map updateHuman res, Cmd.none)
 
 onScreen : TimeWindow -> Maybe FadedScreenEvent -> Bool
 onScreen { top, bottom } mfse = case mfse of

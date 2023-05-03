@@ -1,0 +1,82 @@
+[
+    {
+        "id": "Life",
+        "fill": "#1a507f",
+        "mya": 4200
+    },
+    {
+        "id": "Archaea",
+        "fill": "#627f76",
+        "mya": 3700
+    },
+    {
+        "id": "Eukaryotes",
+        "fill": "#3eda5b",
+        "mya": 2100
+    },
+    {
+        "id": "Animals",
+        "fill": "#b42222",
+        "mya": 610
+    },
+    {
+        "id": "Chordates",
+        "fill": "#dda727",
+        "mya": 530
+    },
+    {
+        "id": "Vertibrates",
+        "fill": "#dbe36d",
+        "mya": 505
+    },
+    {
+        "id": "Tetrapods",
+        "fill": "#88bece",
+        "mya": 395
+    },
+    {
+        "id": "Mammals",
+        "fill": "#169233",
+        "mya": 220
+    },
+    {
+        "id": "Primates",
+        "fill": "#b37d19",
+        "mya": 66
+    },
+    {
+        "id": "Apes",
+        "fill": "#6d3117",
+        "mya": 21
+    },
+    {
+        "id": "Hominids",
+        "fill": "#d4689a",
+        "mya": 17.5
+    },
+    {
+        "id": "Humans",
+        "fill": "#5f3611",
+        "mya": 2.5
+    },
+    {
+        "id": "Homo Sapiens",
+        "fill": "#6a3924",
+        "mya": 0.5
+    },
+    {
+        "id": "Maltravieso cave paintings",
+        "fill": "#c21700",
+        "mya": 0.064
+    },
+    {
+        "id": "Venus of Willendorf",
+        "fill": "#e4c662",
+        "mya": 0.025
+    },
+    {
+        "id": "Agriculture",
+        "fill": "#4bb21f",
+        "mya": 0.0075
+    }
+]

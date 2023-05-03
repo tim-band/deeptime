@@ -72,6 +72,29 @@ screenify top height ev =
   , ev = ev
   }
 
+-- xs and ys should be ordered so that if x0 is an earlier
+-- element and x1 is a later element of the same list then
+-- f x0 x1 is true. Then this will also hold for the result
+mergeWith : (a -> a -> Bool) -> List a -> List a -> List a
+mergeWith f xs ys = case xs of
+  ( x :: xs0 ) -> case ys of
+    ( y :: ys0 ) -> if f x y
+      then x :: mergeWith f xs0 ys
+      else y :: mergeWith f xs ys0
+    [] -> xs
+  [] -> ys
+
+mergeScreenEvents : Events -> Events -> Events
+mergeScreenEvents evs0 evs1 =
+  let
+    earlier e1 e2 = e2.start + e2.end <= e1.start + e1.end
+    later e1 e2 = e1.start + e1.end <= e2.start + e2.end
+  in
+    { previousEvents = mergeWith later evs0.previousEvents evs1.previousEvents
+    , nextEvents = mergeWith earlier evs0.nextEvents evs1.nextEvents
+    , visibleEvents = List.append evs0.visibleEvents evs1.visibleEvents
+    }
+
 findScreenEvents : TimeWindow -> List Event -> Events
 findScreenEvents window evs =
   let
