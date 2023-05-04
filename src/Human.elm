@@ -1,7 +1,6 @@
 module Human exposing (..)
 
 import Html
-import Html.Attributes exposing (attribute)
 import Json.Decode as D
 
 import Base exposing (present, contrastColor)
@@ -17,7 +16,7 @@ decode =
       { name = id
       , category = 8
       , start = present - mya * 1e6
-      , end = present - mya * 1e6
+      , end = Nothing
       , fill = fill
       , color = contrastColor fill
       , pointCount = 1

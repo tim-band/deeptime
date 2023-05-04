@@ -12,7 +12,6 @@ import Http
 import Json.Decode as D
 import List
 import List.Extra exposing (minimumBy, takeWhile)
-import Random
 import Svg
 import Svg.Attributes as Svga
 import Task
@@ -21,7 +20,7 @@ import Time.Extra
 import Html.Events exposing (onClick)
 
 import Base exposing (..)
-import Event exposing (Event, Events, ScreenEvent)
+import Event exposing (Event, Events, ScreenEvent, eventEnd)
 import Human
 import Stratigraphy
 
@@ -87,7 +86,6 @@ updateFadedScreenEventY top height fsev = let ev = fsev.sev.ev in
 
 type Msg
   = NoMsg
-  | SetEvents (List Event.Event)
   | NextFrame
   | Move Float
   | MoveReleased
@@ -109,8 +107,7 @@ init _ = let window = initWindow present 100 in
     , stratigraphyData = Nothing
     }
   , Cmd.batch
-    [ Random.generate SetEvents Event.randomEvents
-    , Task.attempt viewportMsg getViewport
+    [ Task.attempt viewportMsg getViewport
     , Http.get
       { url = Stratigraphy.timeline_data_url
       , expect = Http.expectString
@@ -186,7 +183,7 @@ humanEvolutionUpdate resp model =
 onScreen : TimeWindow -> Maybe FadedScreenEvent -> Bool
 onScreen { top, bottom } mfse = case mfse of
   Nothing -> False
-  Just { sev } -> bottom <= sev.ev.end && sev.ev.start <= top
+  Just { sev } -> bottom <= eventEnd sev.ev && sev.ev.start <= top
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -198,10 +195,6 @@ update msg model =
   in case msg of
     NoMsg -> (model, Cmd.none)
     NextFrame -> (updateModel model, Cmd.none)
-    SetEvents evs1 ->
-      ( { model | events = Event.findScreenEvents model.window evs1 }
-      , Cmd.none
-      )
     Move d -> (
       { model
       | moveMode = case model.moveMode of
@@ -246,7 +239,7 @@ getInterpolatedAt t0 xs =
     (y :: ys) -> gia y t0 ys
 
 midTime : Event -> Time
-midTime { start, end } = (start + end) / 2
+midTime ev = (ev.start + eventEnd ev) / 2
 
 getZoomRate : Events -> TimeWindow -> Float -> Float -> Float
 getZoomRate events window moveRate currentZoomRate =
@@ -324,8 +317,8 @@ updateModel model =
             e = foc.sev.ev
             dist = if halfWay < e.start
               then e.start - halfWay
-              else if e.end < halfWay
-              then e.end - halfWay
+              else if eventEnd e < halfWay
+              then eventEnd e - halfWay
               else 0
             force = dist * 0.03
           in moveRate + force * 16 * frameDelta
@@ -366,14 +359,34 @@ subscriptions _ =
 renderEvent : ScreenEvent -> (String, Html Msg)
 renderEvent e =
   ( "event_" ++ e.ev.name
-  , div (eventAttrs e) [ text e.ev.name ]
+  , case e.ev.end of
+    Just _ -> div (intervalAttrs e) [ text e.ev.name ]
+    Nothing -> div (eventAttrs e) [ text e.ev.name ]
   )
 
 eventPosX : Event -> Int
 eventPosX ev = 5 + ev.category * 4
 
 eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
-eventAttrs { top, bottom, ev } =
+eventAttrs { top, ev } =
+  [ style "position" "fixed"
+  , style "top" (String.fromFloat (top * 100) ++ "%")
+  , style "height" "100px"
+  , style "left" (String.fromInt (eventPosX ev) ++ "%")
+  , style "border" "1px solid black"
+  , style "border-radius" "0 10px 10px 10px"
+  , style "background" ev.fill
+  , style "z-index" "2"
+  , style "cursor" "pointer"
+  , style "text-orientation" "mixed"
+  , style "writing-mode" "vertical-rl"
+  , style "overflow" "hidden"
+  , style "color" ev.color
+  , onClick <| FocusOn ev
+  ]
+
+intervalAttrs : ScreenEvent -> List (Html.Attribute Msg)
+intervalAttrs { top, bottom, ev } =
   [ style "position" "fixed"
   , style "top" (String.fromFloat (top * 100) ++ "%")
   , style "height" (String.fromFloat ((bottom - top) * 100) ++ "%")
@@ -617,8 +630,8 @@ view { events, window, width, height, moveRate, focused } =
     { visibleEvents } = events
     eventBox elts = Html.div
       [ style "position" "fixed"
-      , style "width" "60%"
-      , style "left" "40%"
+      , style "width" "50%"
+      , style "left" "50%"
       , style "top" "0%"
       , style "height" "100%"
       , style "z-index" "1"
@@ -641,7 +654,7 @@ view { events, window, width, height, moveRate, focused } =
           [ Svg.line
             [ toFloat (eventPosX sev.ev) / 100 * width |> Basics.round |> String.fromInt |> Svga.x1
             , (sev.top + sev.bottom) * 0.5 * height |> Basics.round |> String.fromInt |> Svga.y1
-            , 0.4 * width |> Basics.round |> String.fromInt |> Svga.x2
+            , 0.5 * width |> Basics.round |> String.fromInt |> Svga.x2
             , 0.5 * height |> Basics.round |> String.fromInt |> Svga.y2
             , Svga.stroke "black"
             , Svga.opacity opacity

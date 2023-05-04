@@ -73,7 +73,7 @@ events dd ints =
           Nothing -> 7
           Just c -> c + 1
         , start = present - start * 1e6
-        , end = present - end * 1e6
+        , end = Just <| present - end * 1e6
         , name = std.name
         , fill = std.fill
         , color = "black"
