@@ -276,6 +276,8 @@ getZoomRate events window moveRate currentZoomRate =
 updateModel : Model -> Model
 updateModel model =
   let
+    springConstant = 0.03
+    damping = 0.07
     { zoomRate, moveMode, moveRate, window, focused } = model
     half = (window.top - window.bottom) / 2
     moveRate1 = case moveMode of
@@ -292,7 +294,7 @@ updateModel model =
               else if eventEnd e < halfWay
               then eventEnd e - halfWay
               else 0
-            force = dist * 0.01
+            force = dist * springConstant - moveRate * damping
           in moveRate + force * 16 * frameDelta
     mid0 = window.top - half + moveRate1 * frameDelta
     newHalf = half * zoomRate
