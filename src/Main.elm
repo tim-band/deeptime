@@ -26,6 +26,7 @@ import Stratigraphy
 
 import Debug
 import Geography
+import Event exposing (zoomHintHeight)
 
 -- time (in seconds) between frames. The reciprocal of the frame rate
 frameDelta : Float
@@ -244,48 +245,19 @@ midTime ev = (ev.start + eventEnd ev) / 2
 getZoomRate : Events -> TimeWindow -> Float -> Float -> Float
 getZoomRate events window moveRate currentZoomRate =
   let
-    maximumScreensPerSecond = 1.5
-    minimalEventCount = 10
-    secondsLookahead = 1.2
-    idealProportionNewEventsPerSecond = 0.1
+    maximumScreensPerSecond = 0.8
     zoomRateCoefficient = 1
     -- smoothingConstant 0: never change, 1: instantly change
     smoothingConstant = 0.1
     minimumHeight = Basics.abs moveRate / maximumScreensPerSecond
     visibleEventCount = List.length events.visibleEvents
     hardMaxEvents = Basics.max 0 <| 200 - visibleEventCount
-    frameLookahead = secondsLookahead * frameDelta
     height = window.top - window.bottom
     mid = window.bottom + height / 2
-    timeIsClose t = if moveRate < 0
-      then window.bottom + moveRate * frameLookahead < t
-      else t < window.top + moveRate * frameLookahead
     nextEventTimes = List.map midTime <| if moveRate < 0
       then events.previousEvents |> List.take hardMaxEvents
       else events.nextEvents |> List.take hardMaxEvents
-    visibleEventTimes = List.map (\ev -> midTime ev.ev) events.visibleEvents
-    -- extended (floating point) visible event count, including
-    -- a proportion of the next event depending on how close it is
-    visibleEventCountF = toFloat visibleEventCount + case nextEventTimes of
-      [] -> 0
-      (t :: _) -> if moveRate < 0
-        then case List.minimum visibleEventTimes of
-          Nothing -> 0
-          Just vt -> (vt - window.bottom) / (vt - t)
-        else case List.maximum visibleEventTimes of
-          Nothing -> 0
-          Just vt -> (window.top - vt) / (t - vt)
-    closeEventTimes = takeWhile timeIsClose nextEventTimes
-    totalEventCount = visibleEventCount + List.length closeEventTimes
-    desiredVisibleEventCount =
-      idealProportionNewEventsPerSecond * toFloat totalEventCount
-      + minimalEventCount
-    desiredExtraEventCount = desiredVisibleEventCount - visibleEventCountF
-    idealHeight = if desiredExtraEventCount < 0
-      then height * (desiredVisibleEventCount / visibleEventCountF)
-      else case getInterpolatedAt desiredExtraEventCount nextEventTimes of
-        Nothing -> height
-        Just t -> 2 * abs (mid - t)
+    idealHeight = zoomHintHeight mid events.zoomHints
     ratio = max minimumHeight idealHeight / height
     logIdealZoomRate = zoomRateCoefficient * frameDelta * Basics.logBase Basics.e ratio
     logCurrentZoomRate = Basics.logBase Basics.e currentZoomRate
@@ -320,7 +292,7 @@ updateModel model =
               else if eventEnd e < halfWay
               then eventEnd e - halfWay
               else 0
-            force = dist * 0.03
+            force = dist * 0.01
           in moveRate + force * 16 * frameDelta
     mid0 = window.top - half + moveRate1 * frameDelta
     newHalf = half * zoomRate
