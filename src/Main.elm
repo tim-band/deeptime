@@ -4,14 +4,15 @@ import Basics exposing (..)
 import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
+import Csv.Decode as DC
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value)
 import Html.Events exposing (onInput, onMouseUp)
 import Html.Keyed
 import Http
-import Json.Decode as D
+import Json.Decode as DJ
 import List
-import List.Extra exposing (minimumBy, takeWhile)
+import List.Extra exposing (minimumBy)
 import Svg
 import Svg.Attributes as Svga
 import Task
@@ -27,6 +28,7 @@ import Stratigraphy
 import Debug
 import Geography
 import Event exposing (zoomHintHeight)
+import Gts
 
 -- time (in seconds) between frames. The reciprocal of the frame rate
 frameDelta : Float
@@ -92,7 +94,7 @@ type Msg
   | MoveReleased
   | Viewport Float Float
   | FocusOn Event
-  | DataLoad (String -> Model -> (Result D.Error Model, Cmd Msg)) (Result Http.Error String)
+  | DataLoad (String -> Model -> (Result String Model, Cmd Msg)) (Result Http.Error String)
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
@@ -124,6 +126,10 @@ init _ = let window = initWindow present 100 in
       , expect = Http.expectString
         (DataLoad humanEvolutionUpdate)
       }
+    , Http.get
+      { url = Gts.gts_url
+      , expect = Http.expectString (DataLoad gts2020Update)
+      }
     ]
   )
 
@@ -140,10 +146,18 @@ showError e = case e of
     Http.BadStatus i -> "Failed: " ++ String.fromInt i
     Http.BadBody s -> "Bad body: " ++ s
 
-stratigraphyIntervalsUpdate : String -> Model -> (Result D.Error Model, Cmd Msg)
+decodeResult : (err -> String) -> Result err a -> Result String a
+decodeResult errorToString r = case r of
+    Ok v -> Ok v
+    Err e -> e |> errorToString |> Err
+
+decodeJsonResult : Result DJ.Error a -> Result String a
+decodeJsonResult r = decodeResult DJ.errorToString r
+
+stratigraphyIntervalsUpdate : String -> Model -> (Result String Model, Cmd Msg)
 stratigraphyIntervalsUpdate resp model =
   let
-    res = D.decodeString Stratigraphy.decodeIntervals resp
+    res = DJ.decodeString Stratigraphy.decodeIntervals resp
     updateStrat ints = case model.stratigraphyData of
       Nothing -> { model | stratigraphyIntervals = Just ints }
       Just data ->
@@ -153,12 +167,12 @@ stratigraphyIntervalsUpdate resp model =
           Stratigraphy.events data ints
         , stratigraphyIntervals = Just ints
         }
-  in (Result.map updateStrat res, Cmd.none)
+  in (res |> Result.map updateStrat |> decodeJsonResult, Cmd.none)
 
-stratigraphyDataUpdate : String -> Model -> (Result D.Error Model, Cmd Msg)
+stratigraphyDataUpdate : String -> Model -> (Result String Model, Cmd Msg)
 stratigraphyDataUpdate resp model =
   let
-    res = D.decodeString Stratigraphy.decodeData resp
+    res = DJ.decodeString Stratigraphy.decodeData resp
     updateStrat data = case model.stratigraphyIntervals of
       Nothing -> { model | stratigraphyData = Just data }
       Just ints ->
@@ -168,18 +182,32 @@ stratigraphyDataUpdate resp model =
           Stratigraphy.events data ints
         , stratigraphyIntervals = Just ints
         }
-  in (Result.map updateStrat res, Cmd.none)
+  in (res |> Result.map updateStrat |> decodeJsonResult, Cmd.none)
 
-humanEvolutionUpdate : String -> Model -> (Result D.Error Model, Cmd Msg)
+humanEvolutionUpdate : String -> Model -> (Result String Model, Cmd Msg)
 humanEvolutionUpdate resp model =
   let
-    res = D.decodeString Human.decode resp
+    res = DJ.decodeString Human.decode resp
     updateHuman events = 
       { model
       | events = Event.mergeScreenEvents model.events <|
         Event.findScreenEvents model.window events
       }
-  in (Result.map updateHuman res, Cmd.none)
+  in (res |> Result.map updateHuman |> decodeJsonResult, Cmd.none)
+
+decodeCsvResult : Result DC.Error a -> Result String a
+decodeCsvResult r = decodeResult DC.errorToString r
+
+gts2020Update : String -> Model -> (Result String Model, Cmd Msg)
+gts2020Update resp model =
+  let
+    res = DC.decodeCsv DC.FieldNamesFromFirstRow Gts.decodeToEvents resp
+    updateGts events =
+      { model
+      | events = Event.mergeScreenEvents model.events <|
+        Event.findScreenEvents model.window events
+      }
+  in (res |> Result.map updateGts |> decodeCsvResult, Cmd.none)
 
 onScreen : TimeWindow -> Maybe FadedScreenEvent -> Bool
 onScreen { top, bottom } mfse = case mfse of
@@ -222,22 +250,9 @@ update msg model =
         , Cmd.none
         )
     DataLoad decode (Ok str) -> case decode str model of
-      (Err err, cmd) -> let _ = Debug.log "failed to decode" (D.errorToString err) in (model, cmd)
+      (Err err, cmd) -> let _ = Debug.log "failed to decode" err in (model, cmd)
       (Ok model1, cmd) -> (model1, cmd)
     DataLoad _ (Err err) -> let _ = Debug.log "failed to get" (showError err) in (model, Cmd.none)
-
--- Gets the t'th position in the list xs, but interpolated
-getInterpolatedAt : Float -> List Float -> Maybe Float
-getInterpolatedAt t0 xs =
-  let
-    gia last t zs = case zs of
-      [] -> Just last
-      (y :: ys) -> if 1 <= t then gia y (t - 1) ys else case ys of
-        [] -> Just y
-        (y1 :: _) -> Just (y + t * (y1 - y))
-  in case xs of
-    [] -> Nothing
-    (y :: ys) -> gia y t0 ys
 
 midTime : Event -> Time
 midTime ev = (ev.start + eventEnd ev) / 2
