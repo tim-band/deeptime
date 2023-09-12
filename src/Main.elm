@@ -34,6 +34,9 @@ import Gts
 frameDelta : Float
 frameDelta = 0.05
 
+jogDecay : Float
+jogDecay = 0.9 ^ frameDelta
+
 main : Program () Model Msg
 main = Browser.element
   { init = init
@@ -52,6 +55,7 @@ type alias Model =
   , moveMode : MoveMode
   , zoomRate : Float
   , moveRate : Float
+  , moveDecay : Float
   , window : TimeWindow
   , width : Float
   , height : Float
@@ -92,6 +96,7 @@ type Msg
   | NextFrame
   | Move Float
   | MoveReleased
+  | MoveJog Float
   | Viewport Float Float
   | FocusOn Event
   | DataLoad (String -> Model -> (Result String Model, Cmd Msg)) (Result Http.Error String)
@@ -102,6 +107,7 @@ init _ = let window = initWindow present 100 in
     , moveMode = MoveFreeFocus
     , zoomRate = 1
     , moveRate = 0
+    , moveDecay = 1
     , window = window
     , width = 500
     , height = 500
@@ -234,6 +240,19 @@ update msg model =
         then model.focused
         else Nothing
       , moveRate = d
+      , moveDecay = 1
+      }, Cmd.none)
+    MoveJog d -> (
+      { model
+      | moveMode = case model.moveMode of
+        MoveFreeFocus -> MoveFreeFocus
+        MoveToFocus -> nextFocus
+        MoveKeepFocus -> nextFocus
+      , focused = if focusedEventStillVisible
+        then model.focused
+        else Nothing
+      , moveRate = model.moveRate - 0.001 * d * (model.window.top - model.window.bottom)
+      , moveDecay = jogDecay
       }, Cmd.none)
     -- just stop when released for now
     MoveReleased -> ({ model | moveRate = 0 }, Cmd.none)
@@ -293,10 +312,10 @@ updateModel model =
   let
     springConstant = 0.03
     damping = 0.07
-    { zoomRate, moveMode, moveRate, window, focused } = model
+    { zoomRate, moveMode, moveRate, moveDecay, window, focused } = model
     half = (window.top - window.bottom) / 2
     moveRate1 = case moveMode of
-      MoveFreeFocus -> moveRate
+      MoveFreeFocus -> moveRate * moveDecay
       MoveKeepFocus -> moveRate
       MoveToFocus -> case focused of
         Nothing -> moveRate
@@ -661,7 +680,9 @@ view { events, window, width, height, moveRate, focused } =
             ]
           ]
         ]
-  in div []
+  in div
+    [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float
+    ]
     ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
     , getTicks window |> List.map renderTick |> Html.div []
     , Html.input (stopped ++
