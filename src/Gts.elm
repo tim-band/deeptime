@@ -102,7 +102,7 @@ type alias Gts =
   , gts2012id : String  -- Cb18
   , sample : String  -- tonstein; Gabriela coal (seam 365)
   , locality : String  -- Julius Fućık Mine, Petrvald, Moravia- Silesia Region, Czech Republic
-  , latLng : LatLng  -- 49o49.166'N, 18o22.691'E
+  , latLng : Maybe LatLng  -- 49o49.166'N, 18o22.691'E
   , lithostratigraphy : String  -- Jaklovec Member, Ostrava Fm
   , time : Float  -- 325.64
   , analytical2s : Float  -- ± 0.13
@@ -144,7 +144,7 @@ decode = D.into Gts
   |> D.pipeline (D.field "GTS 2012 ID" D.string)
   |> D.pipeline (D.field "Sample" D.string)
   |> D.pipeline (D.field "Locality" D.string)
-  |> D.pipeline (D.field "Lat-Long" D.string |> D.andThen decodeLatLng)
+  |> D.pipeline (D.string |> D.andThen decodeLatLng |> D.blank |> D.field "Lat-Long")
   |> D.pipeline (D.field "Lithostratigraphy" D.string)
   |> D.pipeline (D.field "Age (Ma)" D.string |> D.andThen ageMaToTime)
   |> D.pipeline (D.field "± 2s analytical" D.string |> D.andThen plusMinus)
@@ -161,13 +161,18 @@ htmlTd str = Html.td [] [ Html.text str ]
 htmlTr2 : String -> String -> Html.Html ()
 htmlTr2 k v = Html.tr [] [ htmlTd k, htmlTd v ]
 
+latLngText : Maybe LatLng -> String
+latLngText mll = case mll of
+  Nothing -> "-"
+  Just ll -> ll.representation
+
 gtsTable : Gts -> Html.Html ()
 gtsTable g = Html.table [] [ Html.tbody []
   [ htmlTr2 "GTS 2020 ID" g.gts2020id
   , htmlTr2 "GTS 2012 ID" g.gts2012id
   , htmlTr2 "Sample" g.sample
   , htmlTr2 "Locality" g.locality
-  , htmlTr2 "Lat-Lng" g.latLng.representation
+  , htmlTr2 "Lat-Lng" (latLngText g.latLng)
   , htmlTr2 "Lithostratigraphy" g.lithostratigraphy
   , g.analytical2s |> String.fromFloat |> htmlTr2 "2s analytical"
   , g.total2s |> String.fromFloat |> htmlTr2 "2s total"

@@ -325,7 +325,7 @@ updateModel model =
         Just foc0 ->
           case middlest of
             Nothing -> fadeDownFocused focused
-            Just sevp -> if sevp.ev == foc0.sev.ev
+            Just sevp -> if Event.same sevp.ev foc0.sev.ev
               then Just <| fadeUpFocused foc0
               else fadeDownFocused focused
     focused2 = Maybe.map (updateFadedScreenEventY window1.top (newHalf * 2)) focused1

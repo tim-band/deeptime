@@ -14,6 +14,9 @@ type alias Event =
   , renderPoint : Int -> Html.Html ()
   }
 
+same : Event -> Event -> Bool
+same a b = a.category == b.category && a.name == b.name  -- is this enough?
+
 type alias ScreenEvent =
   { top : Float
   , bottom : Float
