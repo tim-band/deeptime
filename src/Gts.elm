@@ -4,7 +4,10 @@ import Base exposing (present)
 import Csv.Decode as D
 import Event exposing (Event)
 import Html
+import Html.Attributes
 import Parser as P exposing ((|.), (|=))
+import Svg
+import Svg.Attributes as Svga
 
 type alias ZonalRangeAssignment =
   { clade: String  -- ammonoid
@@ -167,7 +170,8 @@ latLngText mll = case mll of
   Just ll -> ll.representation
 
 gtsTable : Gts -> Html.Html ()
-gtsTable g = Html.table [] [ Html.tbody []
+gtsTable g = Html.table [] [ Html.tbody
+  [ Html.Attributes.style "font-size" "small" ]
   [ htmlTr2 "GTS 2020 ID" g.gts2020id
   , htmlTr2 "GTS 2012 ID" g.gts2012id
   , htmlTr2 "Sample" g.sample
@@ -185,6 +189,65 @@ gtsTable g = Html.table [] [ Html.tbody []
   , htmlTr2 "Reference" g.reference
   ]]
 
+gtsMap : Float -> Maybe LatLng -> Html.Html a
+gtsMap width latlng =
+  let
+    mapAttrs = if width < 1000
+      then { width=300, height=150, dir="300x150", r=10.0, stroke=1.5 }
+      else if width < 1600
+      then { width=500, height=250, dir="500x250", r=18.0, stroke=2 }
+      else { width=800, height=400, dir="800x400", r=25.0, stroke=2 }
+    radius = String.fromFloat mapAttrs.r
+    diameter = mapAttrs.r * 2 |> String.fromFloat
+    strokeWidth = String.fromFloat mapAttrs.stroke
+  in case latlng of
+    Nothing -> Html.div [] []
+    Just { lat, lng } -> Html.div
+      [ Html.Attributes.style "position" "relative"
+      ]
+      [ Html.div
+        [ Html.Attributes.style "transform" ("translate("
+          ++ String.fromFloat ((180 + lng) * mapAttrs.width / 360 - mapAttrs.r)
+          ++ "px,"
+          ++ String.fromFloat ((90 - lat) * mapAttrs.height / 180 - mapAttrs.r)
+          ++ "px)")
+        , Html.Attributes.style "position" "absolute"
+        ]
+        [ Svg.svg
+          [ Svga.width diameter
+          , Svga.height diameter
+          , [ "0 0 ", diameter, " ", diameter ] |> String.concat |> Svga.viewBox
+          , Svga.strokeWidth strokeWidth
+          , Svga.fillOpacity "0"
+          ]
+          [ Svg.circle
+            [ Svga.cx radius
+            , Svga.cy radius
+            , mapAttrs.r - mapAttrs.stroke / 2
+              |> String.fromFloat
+              |> Svga.r
+            , Svga.stroke "white"
+            ] []
+          , Svg.circle
+            [ Svga.cx radius
+            , Svga.cy radius
+            , mapAttrs.r - mapAttrs.stroke * 3 / 2
+              |> String.fromFloat
+              |> Svga.r
+            , Svga.stroke "red"
+            ] []
+          ]
+        ]
+      , Html.img
+        [ [ "resources/geography/rectangular/"
+          , mapAttrs.dir
+          , "/image_0.jpg"
+          ]
+          |> String.concat
+          |> Html.Attributes.src
+        ] []
+      ]
+
 gtsToEvent : Gts -> Event
 gtsToEvent gts =
   { category = 9
@@ -194,7 +257,8 @@ gtsToEvent gts =
   , fill = "#403020"
   , color = "white"
   , pointCount = 1
-  , renderPoint = \_ _ -> gtsTable gts
+  , renderPoint = \w _ -> Html.div
+    [] [gtsMap w gts.latLng, gtsTable gts]
   }
 
 decodeToEvents : D.Decoder Event.Event
