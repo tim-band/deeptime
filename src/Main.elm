@@ -55,6 +55,8 @@ type alias Model =
   , moveMode : MoveMode
   , zoomRate : Float
   , moveRate : Float
+  -- How much moveRate is scaled by per frame.
+  -- 1 means no decay, 0 means instant decay.
   , moveDecay : Float
   , window : TimeWindow
   , width : Float
@@ -675,7 +677,8 @@ view { events, window, width, height, moveRate, focused } =
             , style "transform" "translateY(-50%)"
             , style "opacity" opacity
             ]
-            [ Event.pointIndex timeMiddle sev.ev |> sev.ev.renderPoint
+            [ Event.pointIndex timeMiddle sev.ev
+            |> sev.ev.renderPoint width
             |> Html.map (\_ -> NoMsg)
             ]
           ]
@@ -698,10 +701,10 @@ view { events, window, width, height, moveRate, focused } =
       , style "width" (String.fromFloat sliderHeight ++ "px")
       , style "height" (String.fromInt sliderWidth ++ "px")
       , style "transform"
-        ( "translateY("
-        ++ (String.fromFloat (sliderHeight + sliderTop))
-        ++ "px) translateX("
+        ( "translate("
         ++ (String.fromFloat (width - toFloat sliderWidth))
+        ++ "px,"
+        ++ (String.fromFloat (sliderHeight + sliderTop))
         ++ "px) rotate(-90deg)"
         )
       , style "transform-origin" "top left"

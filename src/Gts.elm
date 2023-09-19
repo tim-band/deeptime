@@ -194,7 +194,7 @@ gtsToEvent gts =
   , fill = "#403020"
   , color = "white"
   , pointCount = 1
-  , renderPoint = \_ -> gtsTable gts
+  , renderPoint = \_ _ -> gtsTable gts
   }
 
 decodeToEvents : D.Decoder Event.Event

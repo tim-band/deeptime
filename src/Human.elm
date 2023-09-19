@@ -20,7 +20,7 @@ decode =
       , fill = fill
       , color = contrastColor fill
       , pointCount = 1
-      , renderPoint = \_ -> Html.text id
+      , renderPoint = \_ _ -> Html.text id
       }
     h_dec : D.Decoder Event
     h_dec = D.map3 h2e

@@ -11,7 +11,9 @@ type alias Event =
   , fill : String
   , color : String
   , pointCount : Int
-  , renderPoint : Int -> Html.Html ()
+  -- Render the focused event (will be put in the right hand pane)
+  -- viewport width, and arguments are point index focused
+  , renderPoint : Float -> Int -> Html.Html ()
   }
 
 same : Event -> Event -> Bool
