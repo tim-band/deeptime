@@ -54,7 +54,8 @@ zoomHintHeight : Time -> List ZoomHints -> TimeDelta
 zoomHintHeight t zhs = zhs
   |> List.map (singleZoomHintHeight t)
   |> List.minimum
-  |> Maybe.withDefault 1000
+  |> Maybe.withDefault 1e3
+  |> Basics.max 1e3
 
 pointIndex : Float -> Event -> Int
 pointIndex t { start, end, pointCount } = case end of

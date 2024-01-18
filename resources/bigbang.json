@@ -1,0 +1,73 @@
+[{
+    "name": "Grand Unification Epoch",
+    "start": 1e-43,
+    "end": 1e-36,
+    "fill": "#4e5a80",
+    "description": "The earliest elementary particles are created and the force of gravity separates from the other fundamental forces."
+}, {
+    "name": "Inflationary Epoch",
+    "start": 1e-36,
+    "end": 1e-32,
+    "fill": "#9bb6ff",
+    "description": "The universe inflates exponentially, triggered by the separation of the strong nuclear force from the other fundamental forces. The universe grows to a 'quark soup' about ten centimeters across"
+}, {
+    "name": "Electroweak Epoch",
+    "start": 1e-32,
+    "end": 1e-12,
+    "fill": "#4e5a80",
+    "description": "The strong nuclear force separates, Higgs bosons are created and therefore particles begin to have mass."
+}, {
+    "name": "Quark Epoch",
+    "start": 1e-12,
+    "end": 1e-6,
+    "fill": "#9bb6ff",
+    "description": "The remaining fundamental forces separate into their current forms, the universe cools to 10 billion billion degrees, quarks, electrons and neutrinos form."
+}, {
+    "name": "Hadron Epoch",
+    "start": 1e-6,
+    "end": 1,
+    "fill": "#4e5a80",
+    "description": "The universe cools to a trillion degrees. Protons and neutrons (and other hadrons) form, then most annihilate with their antimatter counterparts."
+}, {
+    "name": "Lepton Epoch",
+    "start": 1,
+    "end": 180,
+    "fill": "#9bb6ff",
+    "description": "After the hadrons mostly annihilated, the universe is dominated by leptons such as electrons, and antileptons (such as positrons). Most annihilate each other by the end of this epoch."
+}, {
+    "name": "Nucleosynthesis",
+    "start": 180,
+    "end": 1200,
+    "fill": "#4e5a80",
+    "description": "The universe, having cooled to about a billion degrees, begins fusing protons and neutrons to form helium and lithium nuclei."
+}, {
+    "name": "Photon Epoch",
+    "start": 1200,
+    "end": 7.6e12,
+    "fill": "#9bb6ff",
+    "description": "The universe is filled with plasma, a hot soup of atomic nuclei and electrons interacting with photons that formed at the end of the Lepton Epoch."
+}, {
+    "name": "Recombination/Decoupling",
+    "start": 7.6e12,
+    "end": 9.5e12,
+    "fill": "#fff3f1",
+    "description": "The universe cools to 3000 degrees, about the temperature of the surface ofthe sun. Electrons and nuclei combine to form atoms, and the universe becomes transparent to light."
+}, {
+    "name": "Dark Era",
+    "start": 9.5e12,
+    "end": 4.7e15,
+    "fill": "#ffb05f",
+    "description": "Atoms have formed but not yet stars. The universe is dominated by dark matter."
+}, {
+    "name": "Reionization",
+    "start": 4.7e15,
+    "end": 3.2e16,
+    "fill": "#ff5400",
+    "description": "The first quasars form, ionizing the surrounding unicerse. The universe is now dominated by ionized plasma."
+}, {
+    "name": "Solar System Formation",
+    "start": 2.68e17,
+    "end": 2.84e17,
+    "fill": "#ff0000",
+    "description": "Our sun and solar system form from the debris from earlier supernovae."
+}]

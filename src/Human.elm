@@ -1,4 +1,4 @@
-module Human exposing (..)
+module Human exposing (evolution_events_url, decode)
 
 import Html
 import Json.Decode as D

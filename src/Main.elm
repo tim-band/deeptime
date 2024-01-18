@@ -6,7 +6,7 @@ import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
 import Csv.Decode as DC
 import Html exposing (Html, div, text)
-import Html.Attributes exposing (attribute, style, value)
+import Html.Attributes exposing (attribute, style, value, height)
 import Html.Events exposing (onInput, onMouseUp)
 import Html.Keyed
 import Http
@@ -17,18 +17,19 @@ import Svg
 import Svg.Attributes as Svga
 import Task
 import Time
-import Time.Extra
 import Html.Events exposing (onClick)
 
 import Base exposing (..)
 import Event exposing (Event, Events, ScreenEvent, eventEnd)
-import Human
+import Bigbang
 import Stratigraphy
 
 import Debug
 import Geography
 import Event exposing (zoomHintHeight)
 import Gts
+import Human
+import Ticks exposing (Tick, getTicks)
 
 -- time (in seconds) between frames. The reciprocal of the frame rate
 frameDelta : Float
@@ -135,6 +136,11 @@ init _ = let window = initWindow present 100 in
         (DataLoad humanEvolutionUpdate)
       }
     , Http.get
+      { url = Bigbang.bigbang_events_url
+      , expect = Http.expectString
+        (DataLoad bigBangUpdate)
+      }
+    , Http.get
       { url = Gts.gts_url
       , expect = Http.expectString (DataLoad gts2020Update)
       }
@@ -192,16 +198,22 @@ stratigraphyDataUpdate resp model =
         }
   in (res |> Result.map updateStrat |> decodeJsonResult, Cmd.none)
 
-humanEvolutionUpdate : String -> Model -> (Result String Model, Cmd Msg)
-humanEvolutionUpdate resp model =
+eventListUpdate : DJ.Decoder (List Event) -> String -> Model -> (Result String Model, Cmd Msg)
+eventListUpdate decoder resp model =
   let
-    res = DJ.decodeString Human.decode resp
+    res = DJ.decodeString decoder resp
     updateHuman events = 
       { model
       | events = Event.mergeScreenEvents model.events <|
         Event.findScreenEvents model.window events
       }
   in (res |> Result.map updateHuman |> decodeJsonResult, Cmd.none)
+
+humanEvolutionUpdate : String -> Model -> (Result String Model, Cmd Msg)
+humanEvolutionUpdate resp model = eventListUpdate Human.decode resp model
+
+bigBangUpdate : String -> Model -> (Result String Model, Cmd Msg)
+bigBangUpdate resp model = eventListUpdate Bigbang.decode resp model
 
 decodeCsvResult : Result DC.Error a -> Result String a
 decodeCsvResult r = decodeResult DC.errorToString r
@@ -332,9 +344,11 @@ updateModel model =
               else 0
             force = dist * springConstant - moveRate * damping
           in moveRate + force * 16 * frameDelta
-    mid0 = window.top - half + moveRate1 * frameDelta
+    mid0 = window.top - half
+    mid1 = mid0 + moveRate1 * frameDelta
     newHalf = half * zoomRate
-    mid = Basics.clamp 0 endTime mid0
+    mid = Basics.clamp 0 endTime mid1
+    effectiveMoveRate = (mid1 - mid0) / frameDelta 
     window1 = { top = mid + newHalf, bottom = mid - newHalf }
     events = Event.adjustScreenEvents window1 model.events
     middlest = getMiddlest events.visibleEvents
@@ -355,7 +369,7 @@ updateModel model =
     | window = window1
     , moveRate = moveRate1
     , events = events
-    , zoomRate = getZoomRate events window1 moveRate1 zoomRate
+    , zoomRate = getZoomRate events window1 effectiveMoveRate zoomRate
     , focused = focused2
     }
 
@@ -410,204 +424,6 @@ intervalAttrs { top, bottom, ev } =
   , style "color" ev.color
   , onClick <| FocusOn ev
   ]
-
-type alias Tick =
-  { y : Float
-  , rendering : String
-  }
-
-renderYearsAgo : Float -> String
-renderYearsAgo ya = if ya < 2e6
-  then String.append (String.fromFloat (ya / 1000)) "kyr"
-  else if ya < 2e9
-  then String.append (String.fromFloat (ya / 1e6)) "Myr"
-  else String.append (String.fromFloat (ya / 1e9)) "Gyr"
-
-renderAdBc : Float -> String
-renderAdBc y = let yr = Basics.round y in if yr < 1
-  then String.append (String.fromInt (1 - yr)) "BC"
-  else String.append (String.fromInt yr) "AD"
-
-renderGregorianYear : Float -> String
-renderGregorianYear y = y |> Basics.round |> String.fromInt
-
-tickList : (Float -> String) -> Float -> Float -> Float -> Float -> List Tick
-tickList render num numStep yPos yStep =
-  let
-    getTl n y = if 1 <= y
-      then []
-      else { y = y, rendering = render n } :: getTl (n + numStep) (y + yStep)
-  in getTl num yPos
-
--- Adjusts for going into BC where the ticks need to go to -9, -19 and so on
--- in order to land on round BC numbers
-tickListAdjusted : (Float -> String) -> Float -> Float -> Float -> Float -> List Tick
-tickListAdjusted render num numStep yPos yStep =
-  let
-    getAdjustedTl n y = if 1 <= y
-      then []
-      else { y = y, rendering = render n } :: getAdjustedTl (n + numStep) (y + yStep)
-    getTl n y = if 1 <= y
-      then []
-      else if n < -1
-      then getAdjustedTl (n + 1) (y + (yStep / numStep))
-      else { y = y, rendering = render n } :: getTl (n + numStep) (y + yStep)
-  in getTl num yPos
-
-getYearsAgoTicks : TimeDelta -> TimeDelta -> Float -> Float -> List Tick
-getYearsAgoTicks yearsAgo height minTickSize maxTickSize =
-  let
-    tickSizes = List.filter ((>=) maxTickSize) [minTickSize * 5, minTickSize * 2]
-    tickSize = case List.head tickSizes of
-      Just t -> t
-      Nothing -> minTickSize
-    firstTick = toFloat (Basics.ceiling (yearsAgo / tickSize)) * tickSize
-  in tickList renderYearsAgo firstTick tickSize ((firstTick - yearsAgo) / height) (tickSize / height)
-
-getAdBcTicks : TimeDelta -> TimeDelta -> Float -> Float -> List Tick
-getAdBcTicks ad height minTickSize maxTickSize =
-  let
-    tickSizes = List.filter ((>=) maxTickSize) [minTickSize * 5, minTickSize * 2]
-    tickSize = case List.head tickSizes of
-      Just t -> t
-      Nothing -> minTickSize
-    firstTick = toFloat (Basics.floor (ad / tickSize)) * tickSize
-  in tickListAdjusted renderAdBc firstTick -tickSize ((ad - firstTick) / height) (tickSize / height)
-
-getGregorianYearTicks : TimeDelta -> TimeDelta -> Float -> Float -> List Tick
-getGregorianYearTicks ad height minTickSize maxTickSize =
-  let
-    tickSizes = List.filter ((>=) maxTickSize) [minTickSize * 5, minTickSize * 2]
-    tickSize = case List.head tickSizes of
-      Just t -> t
-      Nothing -> minTickSize
-    firstTick = toFloat (Basics.floor (ad / tickSize)) * tickSize
-  in tickList renderGregorianYear firstTick -tickSize ((ad - firstTick) / height) (tickSize / height)
-
-daysPerYear : Float
-daysPerYear = 365.25636
-
-secondsPerYear : Float
-secondsPerYear = daysPerYear * 24 * 60 * 60
-
-millisecondsPerYear : Float
-millisecondsPerYear = secondsPerYear * 1000
-
-monthToQuarter : Time.Month -> Time.Month
-monthToQuarter m = case m of
-    Time.Jan -> Time.Jan
-    Time.Feb -> Time.Jan
-    Time.Mar -> Time.Jan
-    Time.Apr -> Time.Apr
-    Time.May -> Time.Apr
-    Time.Jun -> Time.Apr
-    Time.Jul -> Time.Jul
-    Time.Aug -> Time.Jul
-    Time.Sep -> Time.Jul
-    Time.Oct -> Time.Oct
-    Time.Nov -> Time.Oct
-    Time.Dec -> Time.Oct
-
-monthName : Time.Month -> String
-monthName m = case m of
-    Time.Jan -> "Jan"
-    Time.Feb -> "Feb"
-    Time.Mar -> "Mar"
-    Time.Apr -> "Apr"
-    Time.May -> "May"
-    Time.Jun -> "Jun"
-    Time.Jul -> "Jul"
-    Time.Aug -> "Aug"
-    Time.Sep -> "Sep"
-    Time.Oct -> "Oct"
-    Time.Nov -> "Nov"
-    Time.Dec -> "Dec"
-
-millisToParts : Float -> Time.Extra.Parts
-millisToParts m = m |> Basics.round |> Time.millisToPosix |> Time.Extra.posixToParts Time.utc
-
-tickFromMonth : Time -> TimeDelta -> Time.Posix -> Tick
-tickFromMonth top height p =
-  let
-    { year, month } = Time.Extra.posixToParts Time.utc p
-    m = p |> Time.posixToMillis |> toFloat
-  in
-    { y = (top - m) / height
-    , rendering = String.concat [monthName month, " ", String.fromInt year]
-    }
-
-getGregorianMonthTicks : TimeDelta -> TimeDelta -> Float -> List Tick
-getGregorianMonthTicks ad height maxTickSize =
-  let
-    (numMonths, rounder) =
-      if maxTickSize <= 1/4
-      then (1, Basics.identity)
-      else (3, monthToQuarter)
-    posixTimeTop = (ad - 1970) * millisecondsPerYear
-    millis = height * millisecondsPerYear
-    posixTimeBottom = posixTimeTop - millis
-    { year, month } = millisToParts posixTimeBottom
-    firstTickDate = { year = year, month = rounder month, day = 1, hour = 0, minute = 0, second = 0, millisecond = 0 }
-    firstTickPosix = Time.Extra.partsToPosix Time.utc firstTickDate
-    endDate = posixTimeTop |> Basics.round |> Time.millisToPosix
-    tickDates = Time.Extra.range Time.Extra.Month numMonths Time.utc firstTickPosix endDate
-  in List.map (tickFromMonth posixTimeTop millis) tickDates
-
-tickFromDay : Time -> TimeDelta -> Time.Posix -> Tick
-tickFromDay top height p =
-  let
-    { year, month, day } = Time.Extra.posixToParts Time.utc p
-    m = p |> Time.posixToMillis |> toFloat
-  in
-    { y = (top - m) / height
-    , rendering = String.concat [String.fromInt day, " ", monthName month, " ", String.fromInt year]
-    }
-
-getGregorianDayTicks : TimeDelta -> TimeDelta -> Float -> List Tick
-getGregorianDayTicks ad height maxTickSize =
-  let
-    (interval, days) =
-      if maxTickSize <= 5/365
-      then (Time.Extra.Day, [0])
-      else if maxTickSize <= 10/365
-      then (Time.Extra.Month, [0, 5, 10, 15, 20, 25])
-      else (Time.Extra.Month, [0, 10, 20])
-    posixTimeTop = (ad - 1970) * millisecondsPerYear
-    millis = height * millisecondsPerYear
-    posixTimeBottom = posixTimeTop - millis
-    { year, month } = millisToParts posixTimeBottom
-    firstMonthTickDate = { year = year, month = month, day = 1, hour = 0, minute = 0, second = 0, millisecond = 0 }
-    firstMonthTickPosix = Time.Extra.partsToPosix Time.utc firstMonthTickDate
-    endDate = posixTimeTop |> Basics.round |> Time.millisToPosix
-    baseTickDates = Time.Extra.range interval 1 Time.utc firstMonthTickPosix endDate
-    addDays : Time.Posix -> List Time.Posix
-    addDays p = List.map (\d -> Time.Extra.add Time.Extra.Day d Time.utc p) days
-    -- could trim this list if we really wanted to
-    tickDates = List.concatMap addDays baseTickDates
-  in List.map (tickFromDay posixTimeTop millis) tickDates
-
-getGregorianTicks : TimeDelta -> TimeDelta -> Float -> Float -> List Tick
-getGregorianTicks ad height minTickSize maxTickSize =
-  if 0.9 < minTickSize
-    then getGregorianYearTicks ad height minTickSize maxTickSize
-    else if 0.083 < minTickSize
-    then getGregorianMonthTicks ad height maxTickSize
-    else getGregorianDayTicks ad height maxTickSize
-
-getTicks : TimeWindow -> List Tick
-getTicks window =
-  let
-    { top, bottom } = window
-    height = top - bottom
-    maxTickSize = height / 5
-    digitCount = Basics.logBase 10 maxTickSize |> Basics.floor
-    minTickSize = 10 ^ toFloat digitCount
-    yearsAgo = present - top
-  in if 10000 < yearsAgo + height
-    then getYearsAgoTicks yearsAgo height minTickSize maxTickSize
-    else let ad = top - bc1Time in if 1582 <= ad
-      then getGregorianTicks ad height minTickSize maxTickSize
-      else getAdBcTicks ad height minTickSize maxTickSize
 
 renderTick : Tick -> Html Msg
 renderTick { y, rendering } = Html.div
