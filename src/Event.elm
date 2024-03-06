@@ -26,6 +26,8 @@ type alias ScreenEvent =
   , ev : Event
   }
 
+-- all of these (Time, TimeDelta) pairs come from Events run
+-- through idealZoomSizes
 type alias ZoomHints =
   { previouss : List (Time, TimeDelta)  -- reverse time order
   , previous : (Time, TimeDelta)
@@ -37,25 +39,31 @@ type alias Events =
   { previousEvents : List Event  -- in reverse time order
   , visibleEvents : List ScreenEvent
   , nextEvents : List Event -- in forward order
-  , zoomHints : List ZoomHints
+  , zoomHints : List ZoomHints -- where the nearest events are in each category
   }
+
+minimumWindowSize : Float
+minimumWindowSize = 1e-38
 
 singleZoomHintHeight : Time -> ZoomHints -> TimeDelta
 singleZoomHintHeight t zh =
   let
+    -- d0 and d1 are the "ideal" screen sizes when looking at the
+    -- previous or next events.
     (t0, d0) = zh.previous
     (t1, d1) = zh.next
-    td = t1 - t0
-    tp = t - t0
+    td = t1 - t0 -- gap between the previous and next events
+    tp = t - t0 -- position of the gap relative to t (the middle of the screen)
     dd = d1 - d0
-  in if td < 1 then d0 else d0 + dd * tp / td
+    -- lerp between d0 an d1 depending on how close we are to each
+  in d0 + dd * tp / td
 
 zoomHintHeight : Time -> List ZoomHints -> TimeDelta
 zoomHintHeight t zhs = zhs
   |> List.map (singleZoomHintHeight t)
   |> List.minimum
-  |> Maybe.withDefault 1e3
-  |> Basics.max 1e3
+  |> Maybe.withDefault minimumWindowSize
+  |> Basics.max minimumWindowSize
 
 pointIndex : Float -> Event -> Int
 pointIndex t { start, end, pointCount } = case end of
@@ -160,7 +168,7 @@ findScreenEvents window evs =
     zoomSizeTooEarly (t, _) = t < mid
     bookend : List Time -> List Time
     bookend ts = 0 :: present :: ts
-    zoomSizes = evs |> List.concatMap eventPointTimes |> bookend |> List.sort |> removeDuplicates |> idealZoomSizes minimalEventCount
+    zoomSizes = evs |> List.concatMap eventPointTimes |> bookend |> List.sort |> removeDuplicates |> idealZoomSizes minimalEventCount 0.07
     (zoomSizesPrev, zoomSizesNext) = unzipList zoomSizeTooEarly zoomSizes
     ((zp, zps), (zn, zns)) = case zoomSizesNext of
       [] -> case zoomSizesPrev of
@@ -190,6 +198,7 @@ findScreenEvents window evs =
     , zoomHints = [ zoomHints ]
     }
 
+-- move ZoomHints back to t, if possible
 zoomSizesGoBack : Time -> ZoomHints -> ZoomHints
 zoomSizesGoBack t zh =
   case zh.previouss of
@@ -202,6 +211,7 @@ zoomSizesGoBack t zh =
         , nexts = zh.next :: zh.nexts
         }
 
+-- move ZoomHints forward to t, if possible
 zoomSizesGoForward : Time -> ZoomHints -> ZoomHints
 zoomSizesGoForward t zh =
   case zh.nexts of
@@ -214,6 +224,7 @@ zoomSizesGoForward t zh =
         , nexts = nzs
         }
 
+-- change ZoomHints to be centred on time t
 moveZoomHintsTo : Time -> Events -> Events
 moveZoomHintsTo t evs =
   let
@@ -248,9 +259,15 @@ adjustScreenEvents { top, bottom } evs =
     }
 
 -- evs is a list of times of events from earliest to latest
-idealZoomSizes : Int -> List Time -> List (Time, TimeDelta)
-idealZoomSizes idealEventCount evs =
+idealZoomSizes : Int -> Float -> List Time -> List (Time, TimeDelta)
+idealZoomSizes idealEventCount minEventSeparation evs =
   let
+    ahead1 = List.drop 1 evs
     ahead = List.drop idealEventCount evs
-    dif t0 t1 = let d = t1 - t0 in (t0 + d/2, d)
-  in List.map2 dif evs ahead
+    makeTimeHint current next away =
+      let
+        away_delta = away - current
+        limit = (next - current) / minEventSeparation -- make sure we can distinguish events that are close together
+        delta = Basics.min away_delta limit
+      in (current + (delta / 2), delta)
+  in List.map3 makeTimeHint evs ahead1 ahead

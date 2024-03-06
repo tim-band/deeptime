@@ -347,8 +347,9 @@ updateModel model =
     mid0 = window.top - half
     mid1 = mid0 + moveRate1 * frameDelta
     newHalf = half * zoomRate
-    mid = Basics.clamp 0 endTime mid1
-    effectiveMoveRate = (mid1 - mid0) / frameDelta 
+    -- clamp to a fraction of a screen away from the beginning and end of time
+    mid = Basics.clamp (half * 0.1) (endTime - half * 0.5) mid1
+    effectiveMoveRate = (mid - mid0) / frameDelta 
     window1 = { top = mid + newHalf, bottom = mid - newHalf }
     events = Event.adjustScreenEvents window1 model.events
     middlest = getMiddlest events.visibleEvents
