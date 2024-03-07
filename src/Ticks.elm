@@ -21,6 +21,7 @@ getBigMagnitude x =
         else gbm (mag * 1e3) s symbols1 (y * 1e-3)
   in gbm 1 "" [ "k", "M", "G" ] x
 
+-- gets SI magnitude from x, (1, ""), (1000, "m"), (1e9, "µ"), (1e12, "p") and so on
 getLittleMagnitude : Float -> (Float, String)
 getLittleMagnitude x =
   let
@@ -28,8 +29,9 @@ getLittleMagnitude x =
       [] -> (mag, symbol)
       ( s :: symbols1 ) -> if 2 < y
         then (mag, symbol)
-        else glm (mag * 1e-3) s symbols1 (y * 1e3)
-  in glm 1 "" [ "m", "\u{00b5}", "n", "p", "f", "a", "z", "y", "r", "q" ] x
+        else glm (mag + 3) s symbols1 (y * 1e3)
+    (magn, symb) = glm 0 "" [ "m", "\u{00b5}", "n", "p", "f", "a", "z", "y", "r", "q" ] x
+  in (10 ^ magn, symb)
 
 renderAdBc : Float -> String
 renderAdBc y = let yr = Basics.round y in if yr < 1
@@ -39,16 +41,23 @@ renderAdBc y = let yr = Basics.round y in if yr < 1
 renderGregorianYear : Float -> String
 renderGregorianYear y = y |> Basics.round |> String.fromInt
 
-tickListMax : Int -> (Float -> String) -> Float -> Float -> Float -> Float -> List Tick
-tickListMax max_count render num numStep yPos yStep =
+tickListMax : Int -> (Float -> String) -> Float -> Float -> (Float -> Float) -> Float -> Float -> List Tick
+tickListMax max_count render num numStep magnify yPos yStep =
   let
     getTl rec_count n y = if rec_count == 0 || 1 <= y
       then []
-      else { y = y, rendering = render n } :: getTl (rec_count - 1) (n + numStep) (y + yStep)
+      else { y = y, rendering = n |> magnify |> render } :: getTl (rec_count - 1) (n + numStep) (y + yStep)
   in getTl max_count num yPos
 
-tickList : (Float -> String) -> Float -> Float -> Float -> Float -> List Tick
-tickList render num numStep yPos yStep = tickListMax 50 render num numStep yPos yStep
+-- tickList: gives a list of { y: y_position, rendering: string_to_print }
+-- :param render: function to convert a number (representing the time) into a string to mark the tick
+-- :param magnify num: First number to print
+-- :param magnify numStep: Difference between numbers to print
+-- :param magnify: magnification function, to help avoid 13.39999999998 type problems
+-- :param yPos: Position (0=top, 1=bottom) for first tick to print
+-- :param yStep: Delta (in screen height proportion) between ticks
+tickList : (Float -> String) -> Float -> Float -> (Float -> Float) -> Float -> Float -> List Tick
+tickList render num numStep magnify yPos yStep = tickListMax 50 render num numStep magnify yPos yStep
 
 -- Adjusts for going into BC where the ticks need to go to -9, -19 and so on
 -- in order to land on round BC numbers
@@ -76,13 +85,12 @@ getTickSize minTickSize maxTickSize =
 getYearsAgoTicks : TimeDelta -> TimeDelta -> Float -> Float -> List Tick
 getYearsAgoTicks yearsAgo height minTickSize maxTickSize =
   let
-    (mag, symbol) = getBigMagnitude yearsAgo
-    yamag = yearsAgo / mag
-    heightMag = height / mag
-    tickSize = getTickSize (minTickSize / mag) (maxTickSize / mag)
-    firstTick = toFloat (Basics.ceiling (yamag / tickSize)) * tickSize |> Basics.max 0
+    (mag, symbol) = getBigMagnitude (yearsAgo + height)
+    tickSize = getTickSize minTickSize maxTickSize
+    firstTick = toFloat (Basics.ceiling (yearsAgo / tickSize)) * tickSize |> Basics.max 0
     render y = String.fromFloat y ++ symbol ++ "yr"
-  in tickList render firstTick tickSize ((firstTick - yamag) / heightMag) (tickSize / heightMag)
+    magnify n = n / mag
+  in tickList render firstTick tickSize magnify ((firstTick - yearsAgo) / height) (tickSize / height)
 
 getAdBcTicks : TimeDelta -> TimeDelta -> Float -> Float -> List Tick
 getAdBcTicks ad height minTickSize maxTickSize =
@@ -98,7 +106,7 @@ getGregorianYearTicks ad height minTickSize maxTickSize =
     tickSize = getTickSize minTickSize maxTickSize
     adClamped = Basics.min ad latestYear
     firstTick = toFloat (Basics.floor (adClamped / tickSize)) * tickSize
-  in tickList renderGregorianYear firstTick -tickSize ((ad - firstTick) / height) (tickSize / height)
+  in tickList renderGregorianYear firstTick -tickSize Basics.identity ((ad - firstTick) / height) (tickSize / height)
 
 daysPerYear : Float
 daysPerYear = 365.25636
@@ -214,16 +222,22 @@ getEarlySecondsTicks : Time -> TimeDelta -> Float -> List Tick
 getEarlySecondsTicks minute heightMinutes maxTickSizeMinutes =
   let
     second = minute * 60
-    (mag, symbol) = getLittleMagnitude second
-    secondMag = second / mag |> Basics.max 0
-    height = heightMinutes * 60 / mag
-    maxTickSize = maxTickSizeMinutes * 60 / mag
+    (mag0, symbol) = getLittleMagnitude second
+    -- we are going to make ticks 1000 times the real magnitude
+    -- so that they are definitely whole numbers, and we can
+    -- avoid the 13.3999999998 problem...
+    mag = mag0 * 1000
+    -- ...and take the 1000 out again.
+    magnify n = n / 1000
+    secondMag = second * mag |> Basics.max 0
+    height = heightMinutes * 60 * mag
+    maxTickSize = maxTickSizeMinutes * 60 * mag
     minTickSize = getMinTickSize maxTickSize
     tickSize = getTickSize minTickSize maxTickSize
     tickListNumber = secondMag / tickSize |> Basics.floor
     firstTick = toFloat tickListNumber * tickSize
     renderEarlySeconds s = String.fromFloat s ++ symbol ++ "s"
-  in tickListMax (tickListNumber + 1) renderEarlySeconds firstTick -tickSize ((secondMag - firstTick) / height) (tickSize / height)
+  in tickListMax (tickListNumber + 1) renderEarlySeconds firstTick -tickSize magnify ((secondMag - firstTick) / height) (tickSize / height)
 
 getEarlyTicks : String -> Float -> (Time -> TimeDelta -> Float -> List Tick) -> Time -> TimeDelta -> Float -> List Tick
 getEarlyTicks unit mult nextFn year heightYears maxTickSizeYears =
@@ -240,7 +254,7 @@ getEarlyTicks unit mult nextFn year heightYears maxTickSizeYears =
       firstTickNumber = Basics.floor (day / tickSize)
       firstTick = toFloat firstTickNumber * tickSize
       render t = String.fromFloat t ++ unit
-    in tickListMax (firstTickNumber + 1) render firstTick -tickSize ((day - firstTick) / height) (tickSize / height)
+    in tickListMax (firstTickNumber + 1) render firstTick -tickSize Basics.identity ((day - firstTick) / height) (tickSize / height)
 
 getEarlyMinutesTicks : Time -> TimeDelta -> Float -> List Tick
 getEarlyMinutesTicks =
@@ -258,13 +272,19 @@ getEarlyYearsTicks : Time -> TimeDelta -> Float -> Float -> List Tick
 getEarlyYearsTicks year height minTickSize maxTickSize =
   let
     (mag, symbol) = getBigMagnitude year
-    tickSize = getTickSize (minTickSize / mag) (maxTickSize / mag)
-    yearMag = year / mag
-    firstTickNumber = Basics.floor (yearMag / tickSize)
+    -- Multiply everything by a fudge factor to get all the ticks
+    -- to be on integers, then we'll divide again by the same
+    -- amount
+    fudge = 100
+    tickSize = getTickSize (minTickSize * fudge) (maxTickSize * fudge)
+    yearFudged = year * fudge
+    firstTickNumber = Basics.floor (yearFudged / tickSize)
     firstTick = toFloat firstTickNumber * tickSize
-    heightMag = height / mag
     renderEarlyYear yr = String.fromFloat yr ++ symbol ++ "yr"
-  in tickListMax (firstTickNumber + 1) renderEarlyYear firstTick -tickSize ((yearMag - firstTick) / heightMag) (tickSize / heightMag)
+    magnify n = n / mag / fudge
+    heightFudged = height * fudge
+  in tickListMax (firstTickNumber + 1) renderEarlyYear firstTick -tickSize magnify
+      ((yearFudged - firstTick) / heightFudged) (tickSize / heightFudged)
 
 getMinTickSize : TimeDelta -> TimeDelta
 getMinTickSize maxTickSize =
