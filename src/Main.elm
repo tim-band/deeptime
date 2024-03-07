@@ -241,6 +241,8 @@ update msg model =
     nextFocus = if focusedEventStillVisible
       then MoveKeepFocus
       else MoveFreeFocus
+    { top, bottom } = model.window
+    height = top - bottom
   in case msg of
     NoMsg -> (model, Cmd.none)
     NextFrame -> (updateModel model, Cmd.none)
@@ -265,23 +267,19 @@ update msg model =
       , focused = if focusedEventStillVisible
         then model.focused
         else Nothing
-      , moveRate = model.moveRate - 0.001 * d * (model.window.top - model.window.bottom)
+      , moveRate = model.moveRate - 0.001 * d
       , moveDecay = jogDecay
       }, Cmd.none)
     -- just stop when released for now
     MoveReleased -> ({ model | moveRate = 0 }, Cmd.none)
-    Viewport width height -> ({ model | width = width, height = height }, Cmd.none)
+    Viewport vp_width vp_height -> ({ model | width = vp_width, height = vp_height }, Cmd.none)
     FocusOn ev ->
-      let
-        { top, bottom } = model.window
-        height = top - bottom
-      in
-        ({ model
-          | focused = Just { sev = Event.screenify top height ev, fade = 2 }
-          , moveMode = MoveToFocus
-          }
-        , Cmd.none
-        )
+      ({ model
+        | focused = Just { sev = Event.screenify top height ev, fade = 2 }
+        , moveMode = MoveToFocus
+        }
+      , Cmd.none
+      )
     DataLoad decode (Ok str) -> case decode str model of
       (Err err, cmd) -> let _ = Debug.log "failed to decode" err in (model, cmd)
       (Ok model1, cmd) -> (model1, cmd)
@@ -327,7 +325,8 @@ updateModel model =
     springConstant = 0.03
     damping = 0.07
     { zoomRate, moveMode, moveRate, moveDecay, window, focused } = model
-    half = (window.top - window.bottom) / 2
+    height = window.top - window.bottom
+    half = height / 2
     moveRate1 = case moveMode of
       MoveFreeFocus -> moveRate * moveDecay
       MoveKeepFocus -> moveRate
@@ -343,13 +342,13 @@ updateModel model =
               then eventEnd e - halfWay
               else 0
             force = dist * springConstant - moveRate * damping
-          in moveRate + force * 16 * frameDelta
+          in moveRate + force * 16 * frameDelta / height
     mid0 = window.top - half
-    mid1 = mid0 + moveRate1 * frameDelta
+    mid1 = mid0 + moveRate1 * frameDelta * height
     newHalf = half * zoomRate
     -- clamp to a fraction of a screen away from the beginning and end of time
     mid = Basics.clamp (half * 0.1) (endTime - half * 0.5) mid1
-    effectiveMoveRate = (mid - mid0) / frameDelta 
+    effectiveMoveRate = (mid - mid0) / frameDelta
     window1 = { top = mid + newHalf, bottom = mid - newHalf }
     events = Event.adjustScreenEvents window1 model.events
     middlest = getMiddlest events.visibleEvents
@@ -437,9 +436,9 @@ renderTick { y, rendering } = Html.div
 logit : Float -> Float
 logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
 
-stringToMove : Float -> String -> Msg
-stringToMove speed s = case String.toFloat s of
-  Just x -> Move <| logit (x * 0.999) * speed
+stringToMove : String -> Msg
+stringToMove s = case String.toFloat s of
+  Just x -> x * 0.999 |> logit |> Move
   Nothing -> NoMsg
 
 getMiddlest : List ScreenEvent -> Maybe ScreenEvent
@@ -510,7 +509,7 @@ view { events, window, width, height, moveRate, focused } =
       , attribute "min" "-1"
       , attribute "max" "1"
       , attribute "step" "0.01"
-      , onInput <| stringToMove timeHeight
+      , onInput stringToMove
       , onMouseUp MoveReleased
       , style "position" "fixed"
       , style "top" "0"
