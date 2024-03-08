@@ -35,8 +35,11 @@ import Ticks exposing (Tick, getTicks)
 frameDelta : Float
 frameDelta = 0.05
 
+jogAmount : Float
+jogAmount = 0.0003
+
 jogDecay : Float
-jogDecay = 0.9 ^ frameDelta
+jogDecay = 0.6 ^ frameDelta
 
 main : Program () Model Msg
 main = Browser.element
@@ -59,6 +62,8 @@ type alias Model =
   -- How much moveRate is scaled by per frame.
   -- 1 means no decay, 0 means instant decay.
   , moveDecay : Float
+  -- where to force the slider to go to
+  , setSlider : Maybe Float
   , window : TimeWindow
   , width : Float
   , height : Float
@@ -111,6 +116,7 @@ init _ = let window = initWindow present 100 in
     , zoomRate = 1
     , moveRate = 0
     , moveDecay = 1
+    , setSlider = Just 0
     , window = window
     , width = 500
     , height = 500
@@ -257,8 +263,9 @@ update msg model =
         else Nothing
       , moveRate = d
       , moveDecay = 1
+      , setSlider = Nothing
       }, Cmd.none)
-    MoveJog d -> (
+    MoveJog d -> let moveRate = model.moveRate - jogAmount * d in (
       { model
       | moveMode = case model.moveMode of
         MoveFreeFocus -> MoveFreeFocus
@@ -267,16 +274,18 @@ update msg model =
       , focused = if focusedEventStillVisible
         then model.focused
         else Nothing
-      , moveRate = model.moveRate - 0.001 * d
+      , moveRate = moveRate
+      , setSlider = antilogit moveRate |> Just
       , moveDecay = jogDecay
       }, Cmd.none)
     -- just stop when released for now
-    MoveReleased -> ({ model | moveRate = 0 }, Cmd.none)
+    MoveReleased -> ({ model | moveRate = 0, setSlider = Just 0 }, Cmd.none)
     Viewport vp_width vp_height -> ({ model | width = vp_width, height = vp_height }, Cmd.none)
     FocusOn ev ->
       ({ model
         | focused = Just { sev = Event.screenify top height ev, fade = 2 }
         , moveMode = MoveToFocus
+        , setSlider = Just 0
         }
       , Cmd.none
       )
@@ -324,7 +333,7 @@ updateModel model =
   let
     springConstant = 0.03
     damping = 0.07
-    { zoomRate, moveMode, moveRate, moveDecay, window, focused } = model
+    { zoomRate, moveMode, moveRate, moveDecay, setSlider, window, focused } = model
     height = window.top - window.bottom
     half = height / 2
     moveRate1 = case moveMode of
@@ -368,6 +377,7 @@ updateModel model =
     { model
     | window = window1
     , moveRate = moveRate1
+    , setSlider = Maybe.map (\_ -> antilogit moveRate1) setSlider
     , events = events
     , zoomRate = getZoomRate events window1 effectiveMoveRate zoomRate
     , focused = focused2
@@ -436,6 +446,14 @@ renderTick { y, rendering } = Html.div
 logit : Float -> Float
 logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
 
+-- y = ln (1+x)/(1-x)
+-- e^y = (2-(1-x))/(1-x) = 2/(1-x) - 1
+-- e^y + 1 = 2/(1-x)
+-- 2/(e^y + 1) = 1-x
+-- x = 1 - 2/(e^y + 1)
+antilogit : Float -> Float
+antilogit y = 1 - 2 / (1 + Basics.e ^ y)
+
 stringToMove : String -> Msg
 stringToMove s = case String.toFloat s of
   Just x -> x * 0.999 |> logit |> Move
@@ -445,14 +463,16 @@ getMiddlest : List ScreenEvent -> Maybe ScreenEvent
 getMiddlest = minimumBy (\{ unclampedMiddle } -> abs (0.5 - unclampedMiddle))
 
 view : Model -> Html Msg
-view { events, window, width, height, moveRate, focused } =
+view { events, window, width, height, focused, setSlider } =
   let
     timeHeight = window.top - window.bottom
     timeMiddle = window.bottom + timeHeight / 2
     sliderWidth = 30
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
-    stopped = if moveRate == 0 then [ value "0" ] else []
+    setPosition = case setSlider of
+        Nothing -> []
+        Just v -> [ String.fromFloat v |> value ]
     { visibleEvents } = events
     eventBox elts = Html.div
       [ style "position" "fixed"
@@ -504,7 +524,7 @@ view { events, window, width, height, moveRate, focused } =
     ]
     ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
     , getTicks window |> List.map renderTick |> Html.div []
-    , Html.input (stopped ++
+    , Html.input (setPosition ++
       [ attribute "type" "range"
       , attribute "min" "-1"
       , attribute "max" "1"
