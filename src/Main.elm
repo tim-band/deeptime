@@ -341,8 +341,8 @@ updateModel model =
               else if eventEnd e < halfWay
               then eventEnd e - halfWay
               else 0
-            force = dist * springConstant - moveRate * damping
-          in moveRate + force * 16 * frameDelta / height
+            force = dist * springConstant / height - moveRate * damping
+          in moveRate + force * 16 * frameDelta
     mid0 = window.top - half
     mid1 = mid0 + moveRate1 * frameDelta * height
     newHalf = half * zoomRate
