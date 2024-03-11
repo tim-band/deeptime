@@ -338,7 +338,7 @@ updateModel model =
     half = height / 2
     moveRate1 = case moveMode of
       MoveFreeFocus -> moveRate * moveDecay
-      MoveKeepFocus -> moveRate
+      MoveKeepFocus -> moveRate * moveDecay
       MoveToFocus -> case focused of
         Nothing -> moveRate
         Just foc ->
