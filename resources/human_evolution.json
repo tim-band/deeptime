@@ -72,6 +72,10 @@
     {
         "id": "Venus of Willendorf",
         "fill": "#e4c662",
+        "picture": "resources/human/Venus_von_Willendorf_400x600.jpg",
+        "picture-alt-text": "Venus of Willendorf",
+        "picture-credit": "Thirunavukkarasye Raveendran",
+        "picture-license": "cc0",
         "mya": 0.025
     },
     {

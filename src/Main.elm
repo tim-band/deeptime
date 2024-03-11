@@ -582,6 +582,12 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
             , style "top" "50%"
             , style "transform" "translateY(-50%)"
             , style "opacity" opacity
+            , style "padding" "20px"
+            , style "border-style" "solid"
+            , style "border-width" "0px 0px 2px 2px"
+            , style "border-color" "#444"
+            , style "border-radius" "20px"
+            , style "background-image" "linear-gradient(135deg, #08ffff, white)"
             ]
             [ Event.pointIndex timeMiddle sev.ev
             |> sev.ev.renderPoint width
