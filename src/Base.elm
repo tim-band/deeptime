@@ -13,6 +13,7 @@ type alias TimeWindow =
 present : Time
 present = 14e9
 
+latestYear : Float
 latestYear = 2030
 
 bc1Time : Time
@@ -24,8 +25,13 @@ earlyUniverseTime = 1e9
 endTime : Time
 endTime = present + 2100
 
-contrastColor : String -> String
-contrastColor s =
+-- takes a string like "#04ffa3" and
+-- returns Ok ((red, green, blue), max)
+-- max is 15 for #rgb and 255 for #rrggbb
+-- red, green and blue are between 0 and max inclusive
+-- returns Err if the format is not #rgb or #rrggbb
+colorToRgb : String -> Result String ((Int, Int, Int), Int)
+colorToRgb s =
   if String.left 1 s == "#"
     then
       let
@@ -34,8 +40,15 @@ contrastColor s =
         r = Hex.fromString <| String.slice 1 (1 + n) s
         g = Hex.fromString <| String.slice (1 + n) (1 + 2*n) s
         b = Hex.fromString <| String.slice (1 + 2*n) (1 + 3*n) s
-        lum ri gi bi = 30 * ri + 59 * gi + 11 * bi
-      in case Result.map3 lum r g b of
-        Ok v -> if v < (max * 50) then "white" else "black"
-        Err _ -> "red"
-    else "black"
+        triple x y z = (x, y, z)
+      in (Result.map3 triple r g b |> Result.andThen (\rgb -> Ok (rgb, max)))
+    else Err "Not a #colour"
+
+contrastColor : String -> String
+contrastColor s =
+  case colorToRgb s of
+    Err _ -> "red"
+    Ok ((r, b, g), max) ->
+      let
+        lum = 30 * r + 59 * g + 11 * b
+      in if lum < (max * 50) then "white" else "black"

@@ -24,6 +24,7 @@ import Event exposing (Event, Events, ScreenEvent, eventEnd)
 import Bigbang
 import Stratigraphy
 
+import BackgroundGradient exposing (ColourStop)
 import Debug
 import Geography
 import Event exposing (zoomHintHeight)
@@ -70,6 +71,7 @@ type alias Model =
   , focused : Maybe FadedScreenEvent
   , stratigraphyIntervals : Maybe Stratigraphy.IntervalDict
   , stratigraphyData : Maybe Stratigraphy.DataDict
+  , backgroundGradientStops : List BackgroundGradient.ColourStop
   }
 
 type alias FadedScreenEvent =
@@ -123,6 +125,7 @@ init _ = let window = initWindow present 100 in
     , focused = Nothing
     , stratigraphyIntervals = Nothing
     , stratigraphyData = Nothing
+    , backgroundGradientStops = []
     }
   , Cmd.batch
     [ Task.attempt viewportMsg getViewport
@@ -140,6 +143,11 @@ init _ = let window = initWindow present 100 in
       { url = Human.evolution_events_url
       , expect = Http.expectString
         (DataLoad humanEvolutionUpdate)
+      }
+    , Http.get
+      { url = BackgroundGradient.background_gradient_url
+      , expect = Http.expectString
+        (DataLoad backgroundGradientUpdate)
       }
     , Http.get
       { url = Bigbang.bigbang_events_url
@@ -217,6 +225,16 @@ eventListUpdate decoder resp model =
 
 humanEvolutionUpdate : String -> Model -> (Result String Model, Cmd Msg)
 humanEvolutionUpdate resp model = eventListUpdate Human.decode resp model
+
+backgroundGradientUpdate : String -> Model -> (Result String Model, Cmd Msg)
+backgroundGradientUpdate resp model =
+  let
+    res = DJ.decodeString BackgroundGradient.decode resp
+    updateBackgroundGradient stops =
+      { model
+      | backgroundGradientStops = stops
+      }
+    in (res |> Result.map updateBackgroundGradient |> decodeJsonResult, Cmd.none)
 
 bigBangUpdate : String -> Model -> (Result String Model, Cmd Msg)
 bigBangUpdate resp model = eventListUpdate Bigbang.decode resp model
@@ -390,6 +408,8 @@ subscriptions _ =
     , Time.every (1 / frameDelta) (\_ -> NextFrame)
     ]
 
+-- produce a keyed node for the HTML representing an event (or interval)
+-- on the timeline
 renderEvent : ScreenEvent -> (String, Html Msg)
 renderEvent e =
   ( "event_" ++ e.ev.name
@@ -429,19 +449,25 @@ intervalAttrs { top, bottom, ev } =
   , style "z-index" "2"
   , style "cursor" "pointer"
   , style "text-orientation" "mixed"
+  , style "text-shadow" "-1px 1px #444"
   , style "writing-mode" "vertical-rl"
   , style "overflow" "hidden"
   , style "color" ev.color
+  , style "border-style" "solid"
+  , style "border-color" "#666"
+  , style "border-width" "0px 0px 2px 2px"
+  , style "border-radius" "12px"
   , onClick <| FocusOn ev
   ]
 
-renderTick : Tick -> Html Msg
-renderTick { y, rendering } = Html.div
+renderTick : Tick -> (String, Html Msg)
+renderTick { y, rendering } = ("tick_" ++ rendering, Html.div
   [ style "position" "fixed"
   , style "top" (String.fromFloat (y * 100) ++ "%")
   , style "left" "0"
   , style "border-top" "black solid 1px"
-  ] [ Html.text rendering ]
+  , style "z-index" "2"
+  ] [ Html.text rendering ])
 
 logit : Float -> Float
 logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
@@ -462,8 +488,52 @@ stringToMove s = case String.toFloat s of
 getMiddlest : List ScreenEvent -> Maybe ScreenEvent
 getMiddlest = minimumBy (\{ unclampedMiddle } -> abs (0.5 - unclampedMiddle))
 
+getBackground : List ColourStop -> TimeWindow -> String
+getBackground backgroundGradientStops { top, bottom } =
+  let
+    lerpTimeColour : Float -> ColourStop -> ColourStop -> ColourStop
+    lerpTimeColour t cs0 cs1 = let p = (t - cs0.t) / (cs1.t - cs0.t) in
+      ColourStop t (cs0.r + (cs1.r - cs0.r) * p) (cs0.g + (cs1.g - cs0.g) * p) (cs0.b + (cs1.b - cs0.b) * p)
+    code0 : Int
+    code0 = Char.toCode '0'
+    codeA10 : Int
+    codeA10 = Char.toCode 'a' - 10
+    hexgit v =
+      if v < 0
+      then '0'
+      else if v < 10
+      then code0 + v |> Char.fromCode
+      else codeA10 + v |> Char.fromCode
+    hex v =
+      let
+        v1 = v * 16 |> Basics.floor
+        v0 = Basics.floor (v * 256) - v1 * 16
+      in if 15 < v1 then "ff" else String.fromList [hexgit v1, hexgit v0]
+    colour cs = "#" ++ hex cs.r ++ hex cs.g ++ hex cs.b
+    stopPercentage t = 100 * (t - bottom) / (top - bottom) |> String.fromFloat
+    stopDefinition : ColourStop -> String
+    stopDefinition cs = colour cs ++ " " ++ stopPercentage cs.t ++ "%"
+    getRemainingGradStops gradStop gradStops = case gradStops of
+        [] -> [gradStop, { gradStop | t = top }]
+        gs :: gss -> if gs.t < top
+          then gradStop :: getRemainingGradStops gs gss
+          else [gradStop, lerpTimeColour top gradStop gs]
+    getScreenGradStops gradStop gradStops = case gradStops of
+        [] -> colour gradStop
+        gs :: gss -> if gs.t < bottom
+          then getScreenGradStops gs gss
+          else
+            let
+              bottomColour = lerpTimeColour bottom gradStop gs |> colour
+              remainingStops = getRemainingGradStops gs gss
+              stopDefs = remainingStops |> List.map stopDefinition |> String.join ","
+            in "linear-gradient(to top," ++ bottomColour ++ " 0%," ++ stopDefs ++ ")"
+  in case backgroundGradientStops of
+      [] -> ""
+      gs :: gss -> getScreenGradStops gs gss
+
 view : Model -> Html Msg
-view { events, window, width, height, focused, setSlider } =
+view { events, window, width, height, focused, setSlider, backgroundGradientStops } =
   let
     timeHeight = window.top - window.bottom
     timeMiddle = window.bottom + timeHeight / 2
@@ -523,7 +593,7 @@ view { events, window, width, height, focused, setSlider } =
     [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float
     ]
     ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
-    , getTicks window |> List.map renderTick |> Html.div []
+    , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []
     , Html.input (setPosition ++
       [ attribute "type" "range"
       , attribute "min" "-1"
@@ -546,4 +616,13 @@ view { events, window, width, height, focused, setSlider } =
       , style "transform-origin" "top left"
       , style "z-index" "2"
       ]) []
+    , Html.div
+      [ style "background" (getBackground backgroundGradientStops window)
+      , style "position" "fixed"
+      , style "top" "0"
+      , style "left" "0"
+      , style "height" "100%"
+      , style "width" "100%"
+      , style "z-index" "0"
+      ] []
     ] ++ focusIndicators)
