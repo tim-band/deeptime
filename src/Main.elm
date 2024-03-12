@@ -532,6 +532,18 @@ getBackground backgroundGradientStops { top, bottom } =
       [] -> ""
       gs :: gss -> getScreenGradStops gs gss
 
+focusedEventBackground : Event -> String
+focusedEventBackground ev = String.concat
+  [ "linear-gradient(135deg, "
+  , ev.fill
+  ,", "
+  , anticontrastColor ev.fill
+  , ")"
+  ]
+
+dontPropagateEvent : String -> Html.Attribute Msg
+dontPropagateEvent ev = Html.Events.stopPropagationOn ev <| DJ.succeed (NoMsg, True)
+
 view : Model -> Html Msg
 view { events, window, width, height, focused, setSlider, backgroundGradientStops } =
   let
@@ -581,13 +593,18 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
             [ style "position" "absolute"
             , style "top" "50%"
             , style "transform" "translateY(-50%)"
+            , style "max-width" "92%"
+            , style "max-height" "90%"
+            , style "overflow" "scroll"
             , style "opacity" opacity
+            , style "color" sev.ev.color
             , style "padding" "20px"
             , style "border-style" "solid"
             , style "border-width" "0px 0px 2px 2px"
             , style "border-color" "#444"
             , style "border-radius" "20px"
-            , style "background-image" "linear-gradient(135deg, #08ffff, white)"
+            , focusedEventBackground sev.ev |> style "background-image"
+            , dontPropagateEvent "wheel"
             ]
             [ Event.pointIndex timeMiddle sev.ev
             |> sev.ev.renderPoint width
