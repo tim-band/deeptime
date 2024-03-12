@@ -43,7 +43,7 @@ jogDecay : Float
 jogDecay = 0.6 ^ frameDelta
 
 main : Program () Model Msg
-main = Browser.element
+main = Browser.document
   { init = init
   , update = update
   , subscriptions = subscriptions
@@ -544,7 +544,7 @@ focusedEventBackground ev = String.concat
 dontPropagateEvent : String -> Html.Attribute Msg
 dontPropagateEvent ev = Html.Events.stopPropagationOn ev <| DJ.succeed (NoMsg, True)
 
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view { events, window, width, height, focused, setSlider, backgroundGradientStops } =
   let
     timeHeight = window.top - window.bottom
@@ -595,7 +595,8 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
             , style "transform" "translateY(-50%)"
             , style "max-width" "92%"
             , style "max-height" "90%"
-            , style "overflow" "scroll"
+            , style "overflow" "auto"
+            , style "scrollbar-width" "thin"
             , style "opacity" opacity
             , style "color" sev.ev.color
             , style "padding" "20px"
@@ -612,40 +613,44 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
             ]
           ]
         ]
-  in div
-    [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float
-    ]
-    ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
-    , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []
-    , Html.input (setPosition ++
-      [ attribute "type" "range"
-      , attribute "min" "-1"
-      , attribute "max" "1"
-      , attribute "step" "0.01"
-      , onInput stringToMove
-      , onMouseUp MoveReleased
-      , style "position" "fixed"
-      , style "top" "0"
-      , style "left" "0"
-      , style "width" (String.fromFloat sliderHeight ++ "px")
-      , style "height" (String.fromInt sliderWidth ++ "px")
-      , style "transform"
-        ( "translate("
-        ++ (String.fromFloat (width - toFloat sliderWidth))
-        ++ "px,"
-        ++ (String.fromFloat (sliderHeight + sliderTop))
-        ++ "px) rotate(-90deg)"
-        )
-      , style "transform-origin" "top left"
-      , style "z-index" "2"
-      ]) []
-    , Html.div
-      [ style "background" (getBackground backgroundGradientStops window)
-      , style "position" "fixed"
-      , style "top" "0"
-      , style "left" "0"
-      , style "height" "100%"
-      , style "width" "100%"
-      , style "z-index" "0"
-      ] []
-    ] ++ focusIndicators)
+    element = div
+      [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float
+      ]
+      ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
+      , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []
+      , Html.input (setPosition ++
+        [ attribute "type" "range"
+        , attribute "min" "-1"
+        , attribute "max" "1"
+        , attribute "step" "0.01"
+        , onInput stringToMove
+        , onMouseUp MoveReleased
+        , style "position" "fixed"
+        , style "top" "0"
+        , style "left" "0"
+        , style "width" (String.fromFloat sliderHeight ++ "px")
+        , style "height" (String.fromInt sliderWidth ++ "px")
+        , style "transform"
+          ( "translate("
+          ++ (String.fromFloat (width - toFloat sliderWidth))
+          ++ "px,"
+          ++ (String.fromFloat (sliderHeight + sliderTop))
+          ++ "px) rotate(-90deg)"
+          )
+        , style "transform-origin" "top left"
+        , style "z-index" "2"
+        ]) []
+      , Html.div
+        [ style "background" (getBackground backgroundGradientStops window)
+        , style "position" "fixed"
+        , style "top" "0"
+        , style "left" "0"
+        , style "height" "100%"
+        , style "width" "100%"
+        , style "z-index" "0"
+        ] []
+      ] ++ focusIndicators)
+  in
+    { title = "DeepTime"
+    , body = [element]
+    }
