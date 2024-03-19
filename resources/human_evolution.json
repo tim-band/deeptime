@@ -67,7 +67,7 @@
     {
         "id": "Maltravieso cave paintings",
         "fill": "#c21700",
-        "text": "Cave paintings in Maltravieso, southern Spain.",
+        "text": "Cave paintings in Maltravieso, southern Spain, consisting of 71 hand stencils plus line and animal paintings. Many of the hand images are missing part of a finger.",
         "picture": "resources/human/maltravieso.jpg",
         "picture-alt-text": "Cave hand stencil painting",
         "mya": 0.064
@@ -84,7 +84,8 @@
     },
     {
         "id": "Agriculture",
+        "text": "Agriculture developed in at least eleven separate places. Cereals were cultivated in the Levant 23,000 years ago, rice in China 11,500 years ago, sheep were domesticated in Mesopotamia about 12,000 years ago.",
         "fill": "#4bb21f",
-        "mya": 0.0075
+        "mya": 0.023
     }
 ]
