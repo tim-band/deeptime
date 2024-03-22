@@ -248,8 +248,8 @@ gts2020Update resp model =
     res = DC.decodeCsv DC.FieldNamesFromFirstRow Gts.decodeToEvents resp
     updateGts events =
       { model
-      | events = Event.mergeScreenEvents model.events <|
-        Event.findScreenEvents model.window events
+      | events = Event.findScreenEventsCustom 10 0.3 model.window events
+        |> Event.mergeScreenEvents model.events
       }
   in (res |> Result.map updateGts |> decodeCsvResult, Cmd.none)
 
@@ -421,6 +421,7 @@ renderEvent e =
 eventPosX : Event -> Int
 eventPosX ev = 5 + ev.category * 4
 
+-- attributes for a rendered event (so, not an interval) in an event bar
 eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
 eventAttrs { top, ev } =
   [ style "position" "fixed"
@@ -564,6 +565,7 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
       , style "height" "100%"
       , style "z-index" "1"
       ] elts
+    -- focused event box and line joining it to the appropriate place in the event bar
     focusIndicators = case focused of
       Nothing -> [ eventBox [] ]
       Just { sev, fade } -> let opacity = fade |> Basics.min 1 |> String.fromFloat in
@@ -614,11 +616,11 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
           ]
         ]
     element = div
-      [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float
+      [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float  -- MoveJog message
       ]
-      ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
-      , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []
-      , Html.input (setPosition ++
+      ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)  -- Event bars
+      , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []  -- Time axis ticks
+      , Html.input (setPosition ++  -- Time travel slider
         [ attribute "type" "range"
         , attribute "min" "-1"
         , attribute "max" "1"
@@ -640,7 +642,7 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
         , style "transform-origin" "top left"
         , style "z-index" "2"
         ]) []
-      , Html.div
+      , Html.div  -- Background gradient
         [ style "background" (getBackground backgroundGradientStops window)
         , style "position" "fixed"
         , style "top" "0"
@@ -649,7 +651,7 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
         , style "width" "100%"
         , style "z-index" "0"
         ] []
-      ] ++ focusIndicators)
+      ] ++ focusIndicators)  -- focused event infromation
   in
     { title = "DeepTime"
     , body = [element]
