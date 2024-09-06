@@ -5,6 +5,7 @@ import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
 import Csv.Decode as DC
+import Dict
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value, height)
 import Html.Events exposing (onInput, onMouseUp)
@@ -25,6 +26,7 @@ import Bigbang
 import Stratigraphy
 
 import Debug
+import Dinosaurs
 import Geography
 import Event exposing (zoomHintHeight)
 import Gts
@@ -70,6 +72,8 @@ type alias Model =
   , focused : Maybe FadedScreenEvent
   , stratigraphyIntervals : Maybe Stratigraphy.IntervalDict
   , stratigraphyData : Maybe Stratigraphy.DataDict
+  , licenses : Dict.Dict String String
+  , dinosaurData : List Dinosaurs.Dinosaur
   }
 
 type alias FadedScreenEvent =
@@ -123,6 +127,8 @@ init _ = let window = initWindow present 100 in
     , focused = Nothing
     , stratigraphyIntervals = Nothing
     , stratigraphyData = Nothing
+    , licenses = Dict.empty
+    , dinosaurData = []
     }
   , Cmd.batch
     [ Task.attempt viewportMsg getViewport
@@ -149,6 +155,14 @@ init _ = let window = initWindow present 100 in
     , Http.get
       { url = Gts.gts_url
       , expect = Http.expectString (DataLoad gts2020Update)
+      }
+    , Http.get
+      { url = "resources/licenses.json"
+      , expect = Http.expectString <| DataLoad licenseUpdate
+      }
+    , Http.get
+      { url = Dinosaurs.dinosaurs_url
+      , expect = Http.expectString <| DataLoad dinosaurUpdate
       }
     ]
   )
@@ -234,6 +248,37 @@ gts2020Update resp model =
         Event.findScreenEvents model.window events
       }
   in (res |> Result.map updateGts |> decodeCsvResult, Cmd.none)
+
+updateLicenceAndDinosaurEvents : Dict.Dict String String -> List Dinosaurs.Dinosaur -> Model -> Model
+updateLicenceAndDinosaurEvents lics dinos model =
+  { model
+  | licenses = lics
+  , dinosaurData = dinos
+  , events = Event.mergeScreenEvents model.events <|
+    Event.findScreenEvents model.window <|
+    Dinosaurs.dinosaurEvents dinos lics
+  }
+
+dinosaurUpdate : String -> Model -> (Result String Model, Cmd Msg)
+dinosaurUpdate resp model =
+  let
+    res = DJ.decodeString Dinosaurs.decode resp
+    updateDino dinos =
+      { model
+      | dinosaurData = dinos
+      }
+  in if Dict.isEmpty model.licenses
+    then (res |> Result.map updateDino |> decodeJsonResult, Cmd.none)
+    else (res |> Result.map (\dinos -> updateLicenceAndDinosaurEvents model.licenses dinos model) |> decodeJsonResult, Cmd.none)
+
+licenseUpdate: String -> Model -> (Result String Model, Cmd Msg)
+licenseUpdate resp model =
+  let
+    res = DJ.decodeString (DJ.dict DJ.string) resp
+    updateLicense lics = { model | licenses = lics }
+  in if List.isEmpty model.dinosaurData
+    then (res |> Result.map updateLicense |> decodeJsonResult, Cmd.none)
+    else (res |> Result.map (\lics -> updateLicenceAndDinosaurEvents lics model.dinosaurData model) |> decodeJsonResult, Cmd.none)
 
 onScreen : TimeWindow -> Maybe FadedScreenEvent -> Bool
 onScreen { top, bottom } mfse = case mfse of

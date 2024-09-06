@@ -13,6 +13,7 @@ type alias TimeWindow =
 present : Time
 present = 14e9
 
+latestYear : number
 latestYear = 2030
 
 bc1Time : Time
