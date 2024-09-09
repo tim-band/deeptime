@@ -25,6 +25,7 @@ import Event exposing (Event, Events, ScreenEvent, eventEnd)
 import Bigbang
 import Stratigraphy
 
+import BackgroundGradient exposing (ColourStop)
 import Debug
 import Dinosaurs
 import Geography
@@ -44,7 +45,7 @@ jogDecay : Float
 jogDecay = 0.6 ^ frameDelta
 
 main : Program () Model Msg
-main = Browser.element
+main = Browser.document
   { init = init
   , update = update
   , subscriptions = subscriptions
@@ -74,6 +75,7 @@ type alias Model =
   , stratigraphyData : Maybe Stratigraphy.DataDict
   , licenses : Dict.Dict String String
   , dinosaurData : List Dinosaurs.Dinosaur
+  , backgroundGradientStops : List BackgroundGradient.ColourStop
   }
 
 type alias FadedScreenEvent =
@@ -129,6 +131,7 @@ init _ = let window = initWindow present 100 in
     , stratigraphyData = Nothing
     , licenses = Dict.empty
     , dinosaurData = []
+    , backgroundGradientStops = []
     }
   , Cmd.batch
     [ Task.attempt viewportMsg getViewport
@@ -146,6 +149,11 @@ init _ = let window = initWindow present 100 in
       { url = Human.evolution_events_url
       , expect = Http.expectString
         (DataLoad humanEvolutionUpdate)
+      }
+    , Http.get
+      { url = BackgroundGradient.background_gradient_url
+      , expect = Http.expectString
+        (DataLoad backgroundGradientUpdate)
       }
     , Http.get
       { url = Bigbang.bigbang_events_url
@@ -232,6 +240,16 @@ eventListUpdate decoder resp model =
 humanEvolutionUpdate : String -> Model -> (Result String Model, Cmd Msg)
 humanEvolutionUpdate resp model = eventListUpdate Human.decode resp model
 
+backgroundGradientUpdate : String -> Model -> (Result String Model, Cmd Msg)
+backgroundGradientUpdate resp model =
+  let
+    res = DJ.decodeString BackgroundGradient.decode resp
+    updateBackgroundGradient stops =
+      { model
+      | backgroundGradientStops = stops
+      }
+    in (res |> Result.map updateBackgroundGradient |> decodeJsonResult, Cmd.none)
+
 bigBangUpdate : String -> Model -> (Result String Model, Cmd Msg)
 bigBangUpdate resp model = eventListUpdate Bigbang.decode resp model
 
@@ -244,8 +262,8 @@ gts2020Update resp model =
     res = DC.decodeCsv DC.FieldNamesFromFirstRow Gts.decodeToEvents resp
     updateGts events =
       { model
-      | events = Event.mergeScreenEvents model.events <|
-        Event.findScreenEvents model.window events
+      | events = Event.findScreenEventsCustom 10 0.3 model.window events
+        |> Event.mergeScreenEvents model.events
       }
   in (res |> Result.map updateGts |> decodeCsvResult, Cmd.none)
 
@@ -435,6 +453,8 @@ subscriptions _ =
     , Time.every (1 / frameDelta) (\_ -> NextFrame)
     ]
 
+-- produce a keyed node for the HTML representing an event (or interval)
+-- on the timeline
 renderEvent : ScreenEvent -> (String, Html Msg)
 renderEvent e =
   ( "event_" ++ e.ev.name
@@ -446,6 +466,7 @@ renderEvent e =
 eventPosX : Event -> Int
 eventPosX ev = 5 + ev.category * 4 + ev.xOffset
 
+-- attributes for a rendered event (so, not an interval) in an event bar
 eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
 eventAttrs { top, ev } =
   [ style "position" "fixed"
@@ -474,19 +495,25 @@ intervalAttrs { top, bottom, ev } =
   , style "z-index" "2"
   , style "cursor" "pointer"
   , style "text-orientation" "mixed"
+  , style "text-shadow" "-1px 1px #444"
   , style "writing-mode" "vertical-rl"
   , style "overflow" "hidden"
   , style "color" ev.color
+  , style "border-style" "solid"
+  , style "border-color" "#666"
+  , style "border-width" "0px 0px 2px 2px"
+  , style "border-radius" "12px"
   , onClick <| FocusOn ev
   ]
 
-renderTick : Tick -> Html Msg
-renderTick { y, rendering } = Html.div
+renderTick : Tick -> (String, Html Msg)
+renderTick { y, rendering } = ("tick_" ++ rendering, Html.div
   [ style "position" "fixed"
   , style "top" (String.fromFloat (y * 100) ++ "%")
   , style "left" "0"
   , style "border-top" "black solid 1px"
-  ] [ Html.text rendering ]
+  , style "z-index" "2"
+  ] [ Html.text rendering ])
 
 logit : Float -> Float
 logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
@@ -507,8 +534,64 @@ stringToMove s = case String.toFloat s of
 getMiddlest : List ScreenEvent -> Maybe ScreenEvent
 getMiddlest = minimumBy (\{ unclampedMiddle } -> abs (0.5 - unclampedMiddle))
 
-view : Model -> Html Msg
-view { events, window, width, height, focused, setSlider } =
+getBackground : List ColourStop -> TimeWindow -> String
+getBackground backgroundGradientStops { top, bottom } =
+  let
+    lerpTimeColour : Float -> ColourStop -> ColourStop -> ColourStop
+    lerpTimeColour t cs0 cs1 = let p = (t - cs0.t) / (cs1.t - cs0.t) in
+      ColourStop t (cs0.r + (cs1.r - cs0.r) * p) (cs0.g + (cs1.g - cs0.g) * p) (cs0.b + (cs1.b - cs0.b) * p)
+    code0 : Int
+    code0 = Char.toCode '0'
+    codeA10 : Int
+    codeA10 = Char.toCode 'a' - 10
+    hexgit v =
+      if v < 0
+      then '0'
+      else if v < 10
+      then code0 + v |> Char.fromCode
+      else codeA10 + v |> Char.fromCode
+    hex v =
+      let
+        v1 = v * 16 |> Basics.floor
+        v0 = Basics.floor (v * 256) - v1 * 16
+      in if 15 < v1 then "ff" else String.fromList [hexgit v1, hexgit v0]
+    colour cs = "#" ++ hex cs.r ++ hex cs.g ++ hex cs.b
+    stopPercentage t = 100 * (t - bottom) / (top - bottom) |> String.fromFloat
+    stopDefinition : ColourStop -> String
+    stopDefinition cs = colour cs ++ " " ++ stopPercentage cs.t ++ "%"
+    getRemainingGradStops gradStop gradStops = case gradStops of
+        [] -> [gradStop, { gradStop | t = top }]
+        gs :: gss -> if gs.t < top
+          then gradStop :: getRemainingGradStops gs gss
+          else [gradStop, lerpTimeColour top gradStop gs]
+    getScreenGradStops gradStop gradStops = case gradStops of
+        [] -> colour gradStop
+        gs :: gss -> if gs.t < bottom
+          then getScreenGradStops gs gss
+          else
+            let
+              bottomColour = lerpTimeColour bottom gradStop gs |> colour
+              remainingStops = getRemainingGradStops gs gss
+              stopDefs = remainingStops |> List.map stopDefinition |> String.join ","
+            in "linear-gradient(to top," ++ bottomColour ++ " 0%," ++ stopDefs ++ ")"
+  in case backgroundGradientStops of
+      [] -> ""
+      gs :: gss -> getScreenGradStops gs gss
+
+focusedEventBackground : Event -> String
+focusedEventBackground ev = String.concat
+  [ "linear-gradient(135deg, "
+  , ev.fill
+  ,", "
+  , anticontrastColor ev.fill
+  , ")"
+  ]
+
+dontPropagateEvent : String -> Html.Attribute Msg
+dontPropagateEvent ev = Html.Events.stopPropagationOn ev <| DJ.succeed (NoMsg, True)
+
+view : Model -> Browser.Document Msg
+view { events, window, width, height, focused, setSlider, backgroundGradientStops } =
   let
     timeHeight = window.top - window.bottom
     timeMiddle = window.bottom + timeHeight / 2
@@ -527,6 +610,7 @@ view { events, window, width, height, focused, setSlider } =
       , style "height" "100%"
       , style "z-index" "1"
       ] elts
+    -- focused event box and line joining it to the appropriate place in the event bar
     focusIndicators = case focused of
       Nothing -> [ eventBox [] ]
       Just { sev, fade } -> let opacity = fade |> Basics.min 1 |> String.fromFloat in
@@ -556,7 +640,19 @@ view { events, window, width, height, focused, setSlider } =
             [ style "position" "absolute"
             , style "top" "50%"
             , style "transform" "translateY(-50%)"
+            , style "max-width" "92%"
+            , style "max-height" "90%"
+            , style "overflow" "auto"
+            , style "scrollbar-width" "thin"
             , style "opacity" opacity
+            , style "color" sev.ev.color
+            , style "padding" "20px"
+            , style "border-style" "solid"
+            , style "border-width" "0px 0px 2px 2px"
+            , style "border-color" "#444"
+            , style "border-radius" "20px"
+            , focusedEventBackground sev.ev |> style "background-image"
+            , dontPropagateEvent "wheel"
             ]
             [ Event.pointIndex timeMiddle sev.ev
             |> sev.ev.renderPoint width
@@ -564,31 +660,44 @@ view { events, window, width, height, focused, setSlider } =
             ]
           ]
         ]
-  in div
-    [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float
-    ]
-    ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
-    , getTicks window |> List.map renderTick |> Html.div []
-    , Html.input (setPosition ++
-      [ attribute "type" "range"
-      , attribute "min" "-1"
-      , attribute "max" "1"
-      , attribute "step" "0.01"
-      , onInput stringToMove
-      , onMouseUp MoveReleased
-      , style "position" "fixed"
-      , style "top" "0"
-      , style "left" "0"
-      , style "width" (String.fromFloat sliderHeight ++ "px")
-      , style "height" (String.fromInt sliderWidth ++ "px")
-      , style "transform"
-        ( "translate("
-        ++ (String.fromFloat (width - toFloat sliderWidth))
-        ++ "px,"
-        ++ (String.fromFloat (sliderHeight + sliderTop))
-        ++ "px) rotate(-90deg)"
-        )
-      , style "transform-origin" "top left"
-      , style "z-index" "2"
-      ]) []
-    ] ++ focusIndicators)
+    element = div
+      [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float  -- MoveJog message
+      ]
+      ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)  -- Event bars
+      , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []  -- Time axis ticks
+      , Html.input (setPosition ++  -- Time travel slider
+        [ attribute "type" "range"
+        , attribute "min" "-1"
+        , attribute "max" "1"
+        , attribute "step" "0.01"
+        , onInput stringToMove
+        , onMouseUp MoveReleased
+        , style "position" "fixed"
+        , style "top" "0"
+        , style "left" "0"
+        , style "width" (String.fromFloat sliderHeight ++ "px")
+        , style "height" (String.fromInt sliderWidth ++ "px")
+        , style "transform"
+          ( "translate("
+          ++ (String.fromFloat (width - toFloat sliderWidth))
+          ++ "px,"
+          ++ (String.fromFloat (sliderHeight + sliderTop))
+          ++ "px) rotate(-90deg)"
+          )
+        , style "transform-origin" "top left"
+        , style "z-index" "2"
+        ]) []
+      , Html.div  -- Background gradient
+        [ style "background" (getBackground backgroundGradientStops window)
+        , style "position" "fixed"
+        , style "top" "0"
+        , style "left" "0"
+        , style "height" "100%"
+        , style "width" "100%"
+        , style "z-index" "0"
+        ] []
+      ] ++ focusIndicators)  -- focused event infromation
+  in
+    { title = "DeepTime"
+    , body = [element]
+    }
