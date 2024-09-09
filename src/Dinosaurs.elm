@@ -7,7 +7,7 @@ import Json.Decode as D
 import Json.Decode.Pipeline as DP
 
 import Base exposing (Time, present)
-import Event exposing (Event)
+import Event exposing (Event, setXOffsets)
 
 dinosaurs_url : String
 dinosaurs_url = "resources/dinosaurs.json"
@@ -60,6 +60,7 @@ to_interval license_href
   , fill = "#80c010"
   , color = "#ffffff"
   , pointCount = 1
+  , xOffset = 0
   , renderPoint = \_ _ -> Html.div [] (
     let
       render credit license main =
@@ -71,9 +72,7 @@ to_interval license_href
       rendered_image = render credit_image license_image <| Html.img
         [ Attrs.src ("resources/dinosaurs/" ++ image)
         , Attrs.width 600
-        , Attrs.height 400
-        , Attrs.attribute "max-width" "100%"
-        , Attrs.attribute "max-height" "100%"
+        , Attrs.attribute "max-height" "400px"
         ] []
       rendered_text = render credit_text license_text <| Html.p [] [Html.text text]
     in Html.h2 [] [Html.text name] :: rendered_image ++ rendered_text)
@@ -83,4 +82,4 @@ decode : D.Decoder (List Dinosaur)
 decode = dino_decode |> D.list
 
 dinosaurEvents : List Dinosaur -> Dict.Dict String String -> List Event
-dinosaurEvents ds licenses = List.map (to_interval licenses) ds
+dinosaurEvents ds licenses = List.map (to_interval licenses) ds |> setXOffsets

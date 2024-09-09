@@ -22,6 +22,7 @@ geography =
   , fill = "#604010"
   , color = "yellow"
   , pointCount = 42
+  , xOffset = 0
   , renderPoint = \w i -> Html.img
     [ attribute "src"
       ( imageDir w

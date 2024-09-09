@@ -2,6 +2,7 @@ module Event exposing (..)
 
 import Base exposing (Time, TimeDelta, TimeWindow, present)
 import Html
+import Heap
 
 type alias Event =
   { category : Int
@@ -11,6 +12,7 @@ type alias Event =
   , fill : String
   , color : String
   , pointCount : Int
+  , xOffset : Int
   -- Render the focused event (will be put in the right hand pane)
   -- viewport width, and arguments are point index focused
   , renderPoint : Float -> Int -> Html.Html ()
@@ -271,3 +273,34 @@ idealZoomSizes idealEventCount minEventSeparation evs =
         delta = Basics.min away_delta limit
       in (current + (delta / 2), delta)
   in List.map3 makeTimeHint evs ahead1 ahead
+
+setXOffsets : List Event -> List Event
+setXOffsets events =
+  let
+    eventsSorted = List.sortBy (\e -> e.start) events
+    end e = Maybe.withDefault e.start e.end
+    -- set the X offset of the head of es (if it exists), then continue with the rest of es
+    doXOffsets : Int -> Heap.Heap Int -> Heap.Heap Event -> List Event -> List Event
+    doXOffsets next unoccupied currentEvents es = case es of
+      -- there are no new events, so just output current events
+      [] -> Heap.toList currentEvents
+      e0 :: es0 -> doXOffsetsHT next unoccupied currentEvents e0 es0
+    -- set the X offset of e0, then continue with the events in es0
+    -- after outputting all the events that finish before e0
+    doXOffsetsHT next unoccupied currentEvents e0 es0 = case Heap.pop currentEvents of
+      -- There are no current events to end, so the next edge is the start of the next event
+      Nothing -> setNextXOffset next unoccupied currentEvents e0 es0
+      -- There are current events, so does the next event to end end before the next
+      -- event to start starts?
+      Just (ce, ces) -> if end ce < e0.start
+        -- current event ending next
+        then ce :: doXOffsetsHT next (Heap.push ce.xOffset unoccupied) ces e0 es0
+        -- New event starting next
+        else setNextXOffset next unoccupied currentEvents e0 es0
+    -- set the X offset of e as whatever the next x offset should be
+    setNextXOffset next unoccupied currentEvents e es = case Heap.pop unoccupied of
+      -- there are no unoccupied offsets, so we'll make a new one
+      Nothing -> doXOffsets (next + 1) unoccupied (Heap.push {e | xOffset = next} currentEvents) es
+      -- there is an unoccupied offset, so we'll use that
+      Just (occ, occs) -> doXOffsets next occs (Heap.push {e | xOffset = occ} currentEvents) es
+  in doXOffsets 0 (Heap.empty Heap.smallest) (Heap.empty (Heap.smallest |> Heap.by end)) eventsSorted

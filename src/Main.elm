@@ -444,7 +444,7 @@ renderEvent e =
   )
 
 eventPosX : Event -> Int
-eventPosX ev = 5 + ev.category * 4
+eventPosX ev = 5 + ev.category * 4 + ev.xOffset
 
 eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
 eventAttrs { top, ev } =

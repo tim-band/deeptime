@@ -78,6 +78,7 @@ events dd ints =
         , fill = std.fill
         , color = "black"
         , pointCount = 1
+        , xOffset = 0
         , renderPoint = \_ _ -> Html.text std.name
         } :: acc
   in Dict.foldr addEvent [] dd

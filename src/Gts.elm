@@ -257,6 +257,7 @@ gtsToEvent gts =
   , fill = "#403020"
   , color = "white"
   , pointCount = 1
+  , xOffset = 0
   , renderPoint = \w _ -> Html.div
     [] [gtsMap w gts.latLng, gtsTable gts]
   }
