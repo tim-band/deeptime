@@ -8,6 +8,7 @@ import Json.Decode.Pipeline as DP
 
 import Base exposing (Time, present)
 import Event exposing (Event, setXOffsets)
+import Base exposing (contrastColor)
 
 dinosaurs_url : String
 dinosaurs_url = "resources/dinosaurs.json"
@@ -37,9 +38,12 @@ dino_decode = D.succeed Dinosaur
   |> DP.required "license_image" D.string
 
 license_link : Dict.Dict String String -> String -> Html.Html msg
-license_link text2url text = case Dict.get text text2url of
-    Nothing -> Html.span [Attrs.class "license"] [Html.text text]
-    Just url -> Html.a [Attrs.href url, Attrs.class "license"] [Html.text text]
+license_link text2url text =
+  let
+    style = [Attrs.style "font-size" "small", Attrs.style "padding" "0px 5px"]
+  in case Dict.get text text2url of
+    Nothing -> Html.span style [Html.text text]
+    Just url -> Html.a (Attrs.href url :: style) [Html.text text]
 
 to_interval : Dict.Dict String String -> Dinosaur -> Event
 to_interval license_href
@@ -68,18 +72,32 @@ to_interval license_href
           license_elt = license_link license_href license
         in if String.isEmpty credit
           then [ main, license_elt ]
-          else [ main, Html.p [Attrs.class "credit"] [Html.text credit, license_elt]]
-      rendered_image = render credit_image license_image <| Html.img
+          else [ main, Html.span [Attrs.style "font-size" "small"] [Html.text credit, license_elt]]
+      rendered_image = render credit_image license_image <| Html.div [] [Html.img
         [ Attrs.src ("resources/dinosaurs/" ++ image)
         , Attrs.width 600
         , Attrs.attribute "max-height" "400px"
-        ] []
-      rendered_text = render credit_text license_text <| Html.p [] [Html.text text]
-    in Html.h2 [] [Html.text name] :: rendered_image ++ rendered_text)
+        ] []]
+      rendered_text = render credit_text license_text <| Html.span [] [Html.text text]
+    in
+      [ Html.h2 [] [Html.text name]
+      , Html.div [] rendered_image
+      , Html.div [] rendered_text])
   }
 
 decode : D.Decoder (List Dinosaur)
 decode = dino_decode |> D.list
 
+setColours : List Event -> List Event
+setColours events =
+  let
+    colorLoop = ["#aa7f08", "#84aa08", "#aa2e08", "#777529", "#537729", "#774e29", "#517a0f"]
+    sc es cl = case es of
+      [] -> []
+      (e0 :: es0) -> case cl of
+        [] -> sc es colorLoop
+        (c0 :: cl0) -> {e0 | fill = c0, color = contrastColor c0} :: sc es0 cl0
+    in sc events []
+
 dinosaurEvents : List Dinosaur -> Dict.Dict String String -> List Event
-dinosaurEvents ds licenses = List.map (to_interval licenses) ds |> setXOffsets
+dinosaurEvents ds licenses = List.map (to_interval licenses) ds |> setXOffsets |> setColours
