@@ -19,6 +19,7 @@
             "elm/time": "1.0.0",
             "elm-community/list-extra": "8.7.0",
             "justinmimbs/time-extra": "1.1.1",
+            "mpizenberg/elm-pointer-events": "5.0.0",
             "rtfeldman/elm-hex": "1.0.0"
         },
         "indirect": {

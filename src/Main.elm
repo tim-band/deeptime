@@ -8,7 +8,8 @@ import Csv.Decode as DC
 import Dict
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value, height)
-import Html.Events exposing (onInput, onMouseUp)
+import Html.Events exposing (onInput, onMouseUp, on)
+import Html.Events.Extra.Touch as Touch
 import Html.Keyed
 import Http
 import Json.Decode as DJ
@@ -111,6 +112,7 @@ type Msg
   | Move Float
   | MoveReleased
   | MoveJog Float
+  | SliderTo Float  -- set the slider to number between -1 and 1, and set the move rate accordingly
   | Viewport Float Float
   | FocusOn Event
   | DataLoad (String -> Model -> (Result String Model, Cmd Msg)) (Result Http.Error String)
@@ -306,41 +308,49 @@ onScreen { top, bottom } mfse = case mfse of
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   let
-    focusedEventStillVisible = onScreen model.window model.focused
-    nextFocus = if focusedEventStillVisible
-      then MoveKeepFocus
-      else MoveFreeFocus
+    adjustMoveMode model0 =
+      let
+        focusedEventStillVisible = onScreen model.window model.focused
+        nextFocus = if focusedEventStillVisible
+          then MoveKeepFocus
+          else MoveFreeFocus
+      in
+        { model0
+        | moveMode = case model0.moveMode of
+          MoveFreeFocus -> MoveFreeFocus
+          MoveToFocus -> nextFocus
+          MoveKeepFocus -> nextFocus
+        , focused = if focusedEventStillVisible
+          then model0.focused
+          else Nothing
+        }
     { top, bottom } = model.window
     height = top - bottom
   in case msg of
     NoMsg -> (model, Cmd.none)
     NextFrame -> (updateModel model, Cmd.none)
-    Move d -> (
-      { model
-      | moveMode = case model.moveMode of
-        MoveFreeFocus -> MoveFreeFocus
-        MoveToFocus -> nextFocus
-        MoveKeepFocus -> nextFocus
-      , focused = if focusedEventStillVisible
-        then model.focused
-        else Nothing
-      , moveRate = d
+    Move d -> let model1 = adjustMoveMode model in (
+      { model1
+      | moveRate = d
       , moveDecay = 1
       , setSlider = Nothing
       }, Cmd.none)
-    MoveJog d -> let moveRate = model.moveRate - jogAmount * d in (
-      { model
-      | moveMode = case model.moveMode of
-        MoveFreeFocus -> MoveFreeFocus
-        MoveToFocus -> nextFocus
-        MoveKeepFocus -> nextFocus
-      , focused = if focusedEventStillVisible
-        then model.focused
-        else Nothing
-      , moveRate = moveRate
-      , setSlider = antilogit moveRate |> Just
-      , moveDecay = jogDecay
+    SliderTo d -> let model1 = adjustMoveMode model in (
+      { model1
+      | moveRate = floatToMoveRate d
+      , setSlider = Just d
+      , moveDecay = 1
       }, Cmd.none)
+    MoveJog d ->
+      let
+        moveRate = model.moveRate - jogAmount * d
+        model1 = adjustMoveMode model
+      in (
+        { model1
+        | moveRate = moveRate
+        , setSlider = antilogit moveRate |> Just
+        , moveDecay = jogDecay
+        }, Cmd.none)
     -- just stop when released for now
     MoveReleased -> ({ model | moveRate = 0, setSlider = Just 0 }, Cmd.none)
     Viewport vp_width vp_height -> ({ model | width = vp_width, height = vp_height }, Cmd.none)
@@ -526,9 +536,12 @@ logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
 antilogit : Float -> Float
 antilogit y = 1 - 2 / (1 + Basics.e ^ y)
 
+floatToMoveRate : Float -> Float
+floatToMoveRate x = x * 0.999 |> logit
+
 stringToMove : String -> Msg
 stringToMove s = case String.toFloat s of
-  Just x -> x * 0.999 |> logit |> Move
+  Just x -> x |> floatToMoveRate |> Move
   Nothing -> NoMsg
 
 getMiddlest : List ScreenEvent -> Maybe ScreenEvent
@@ -599,8 +612,12 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
     setPosition = case setSlider of
-        Nothing -> []
-        Just v -> [ String.fromFloat v |> value ]
+      Nothing -> []
+      Just v -> [ String.fromFloat v |> value ]
+    touchMoveSlider : Touch.Event -> Msg
+    touchMoveSlider event = case List.head event.touches of
+      Nothing -> NoMsg
+      Just touch -> 1 - clamp 0 2 (2 * (Tuple.second touch.clientPos - sliderTop) / sliderHeight) |> SliderTo
     { visibleEvents } = events
     eventBox elts = Html.div
       [ style "position" "fixed"
@@ -672,6 +689,9 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
         , attribute "step" "0.01"
         , onInput stringToMove
         , onMouseUp MoveReleased
+        , Touch.onEnd <| \_ -> MoveReleased
+        , Touch.onMove touchMoveSlider
+        , Touch.onStart touchMoveSlider
         , style "position" "fixed"
         , style "top" "0"
         , style "left" "0"
@@ -686,6 +706,7 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
           )
         , style "transform-origin" "top left"
         , style "z-index" "2"
+        , style "touch-action" "none"
         ]) []
       , Html.div  -- Background gradient
         [ style "background" (getBackground backgroundGradientStops window)
