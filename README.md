@@ -11,7 +11,7 @@ elm make src/Main.elm
 rsync index.html linuxmac:deeptime
 rsync -r resources/ linuxmac:deeptime/resources
 ssh linuxmac
-sudo rsync -r deeptime/ /var/www/html/
+sudo rsync -r deeptime/ /var/www/html/deeptime/
 exit
 ```
 
