@@ -67,16 +67,25 @@
     {
         "id": "Maltravieso cave paintings",
         "fill": "#c21700",
+        "text": "Cave paintings in Maltravieso, southern Spain, consisting of 71 hand stencils plus line and animal paintings. Many of the hand images are missing part of a finger.",
+        "picture": "resources/human/maltravieso.jpg",
+        "picture-alt-text": "Cave hand stencil painting",
         "mya": 0.064
     },
     {
         "id": "Venus of Willendorf",
+        "text": "Ancient stone carving, around 11cm high, of a female figure discovered near Willendorf in Austria in 1908, dated to around 28,000 - 25,000 BCE. The rock it is made of is not native to the region, perhaps coming from northern Italy or Ukraine. Similar figurines have been found in southern Russia.",
         "fill": "#e4c662",
-        "mya": 0.025
+        "picture": "resources/human/Venus_von_Willendorf_400x600.jpg",
+        "picture-alt-text": "Venus of Willendorf",
+        "picture-credit": "Thirunavukkarasye Raveendran",
+        "picture-license": "cc0",
+        "mya": 0.0295
     },
     {
         "id": "Agriculture",
+        "text": "Agriculture developed in at least eleven separate places. Cereals were cultivated in the Levant 23,000 years ago, rice in China 11,500 years ago, sheep were domesticated in Mesopotamia about 12,000 years ago.",
         "fill": "#4bb21f",
-        "mya": 0.0075
+        "mya": 0.023
     }
 ]

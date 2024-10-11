@@ -23,6 +23,7 @@ decode =
       , fill = fill
       , color = contrastColor fill
       , pointCount = 1
+      , xOffset = 0
       , renderPoint = \_ _ -> Html.text description
       }
     bb_dec : D.Decoder Event

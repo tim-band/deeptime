@@ -5,9 +5,11 @@ import Browser
 import Browser.Dom exposing (getViewport)
 import Browser.Events exposing (onResize)
 import Csv.Decode as DC
+import Dict
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value, height)
-import Html.Events exposing (onInput, onMouseUp)
+import Html.Events exposing (onInput, onMouseUp, on)
+import Html.Events.Extra.Touch as Touch
 import Html.Keyed
 import Http
 import Json.Decode as DJ
@@ -24,7 +26,9 @@ import Event exposing (Event, Events, ScreenEvent, eventEnd)
 import Bigbang
 import Stratigraphy
 
+import BackgroundGradient exposing (ColourStop)
 import Debug
+import Dinosaurs
 import Geography
 import Event exposing (zoomHintHeight)
 import Gts
@@ -42,7 +46,7 @@ jogDecay : Float
 jogDecay = 0.6 ^ frameDelta
 
 main : Program () Model Msg
-main = Browser.element
+main = Browser.document
   { init = init
   , update = update
   , subscriptions = subscriptions
@@ -70,6 +74,9 @@ type alias Model =
   , focused : Maybe FadedScreenEvent
   , stratigraphyIntervals : Maybe Stratigraphy.IntervalDict
   , stratigraphyData : Maybe Stratigraphy.DataDict
+  , licenses : Dict.Dict String String
+  , dinosaurData : List Dinosaurs.Dinosaur
+  , backgroundGradientStops : List BackgroundGradient.ColourStop
   }
 
 type alias FadedScreenEvent =
@@ -105,6 +112,7 @@ type Msg
   | Move Float
   | MoveReleased
   | MoveJog Float
+  | SliderTo Float  -- set the slider to number between -1 and 1, and set the move rate accordingly
   | Viewport Float Float
   | FocusOn Event
   | DataLoad (String -> Model -> (Result String Model, Cmd Msg)) (Result Http.Error String)
@@ -123,6 +131,9 @@ init _ = let window = initWindow present 100 in
     , focused = Nothing
     , stratigraphyIntervals = Nothing
     , stratigraphyData = Nothing
+    , licenses = Dict.empty
+    , dinosaurData = []
+    , backgroundGradientStops = []
     }
   , Cmd.batch
     [ Task.attempt viewportMsg getViewport
@@ -142,6 +153,11 @@ init _ = let window = initWindow present 100 in
         (DataLoad humanEvolutionUpdate)
       }
     , Http.get
+      { url = BackgroundGradient.background_gradient_url
+      , expect = Http.expectString
+        (DataLoad backgroundGradientUpdate)
+      }
+    , Http.get
       { url = Bigbang.bigbang_events_url
       , expect = Http.expectString
         (DataLoad bigBangUpdate)
@@ -149,6 +165,14 @@ init _ = let window = initWindow present 100 in
     , Http.get
       { url = Gts.gts_url
       , expect = Http.expectString (DataLoad gts2020Update)
+      }
+    , Http.get
+      { url = "resources/licenses.json"
+      , expect = Http.expectString <| DataLoad licenseUpdate
+      }
+    , Http.get
+      { url = Dinosaurs.dinosaurs_url
+      , expect = Http.expectString <| DataLoad dinosaurUpdate
       }
     ]
   )
@@ -218,6 +242,16 @@ eventListUpdate decoder resp model =
 humanEvolutionUpdate : String -> Model -> (Result String Model, Cmd Msg)
 humanEvolutionUpdate resp model = eventListUpdate Human.decode resp model
 
+backgroundGradientUpdate : String -> Model -> (Result String Model, Cmd Msg)
+backgroundGradientUpdate resp model =
+  let
+    res = DJ.decodeString BackgroundGradient.decode resp
+    updateBackgroundGradient stops =
+      { model
+      | backgroundGradientStops = stops
+      }
+    in (res |> Result.map updateBackgroundGradient |> decodeJsonResult, Cmd.none)
+
 bigBangUpdate : String -> Model -> (Result String Model, Cmd Msg)
 bigBangUpdate resp model = eventListUpdate Bigbang.decode resp model
 
@@ -230,10 +264,41 @@ gts2020Update resp model =
     res = DC.decodeCsv DC.FieldNamesFromFirstRow Gts.decodeToEvents resp
     updateGts events =
       { model
-      | events = Event.mergeScreenEvents model.events <|
-        Event.findScreenEvents model.window events
+      | events = Event.findScreenEventsCustom 10 0.3 model.window events
+        |> Event.mergeScreenEvents model.events
       }
   in (res |> Result.map updateGts |> decodeCsvResult, Cmd.none)
+
+updateLicenceAndDinosaurEvents : Dict.Dict String String -> List Dinosaurs.Dinosaur -> Model -> Model
+updateLicenceAndDinosaurEvents lics dinos model =
+  { model
+  | licenses = lics
+  , dinosaurData = dinos
+  , events = Event.mergeScreenEvents model.events <|
+    Event.findScreenEvents model.window <|
+    Dinosaurs.dinosaurEvents dinos lics
+  }
+
+dinosaurUpdate : String -> Model -> (Result String Model, Cmd Msg)
+dinosaurUpdate resp model =
+  let
+    res = DJ.decodeString Dinosaurs.decode resp
+    updateDino dinos =
+      { model
+      | dinosaurData = dinos
+      }
+  in if Dict.isEmpty model.licenses
+    then (res |> Result.map updateDino |> decodeJsonResult, Cmd.none)
+    else (res |> Result.map (\dinos -> updateLicenceAndDinosaurEvents model.licenses dinos model) |> decodeJsonResult, Cmd.none)
+
+licenseUpdate: String -> Model -> (Result String Model, Cmd Msg)
+licenseUpdate resp model =
+  let
+    res = DJ.decodeString (DJ.dict DJ.string) resp
+    updateLicense lics = { model | licenses = lics }
+  in if List.isEmpty model.dinosaurData
+    then (res |> Result.map updateLicense |> decodeJsonResult, Cmd.none)
+    else (res |> Result.map (\lics -> updateLicenceAndDinosaurEvents lics model.dinosaurData model) |> decodeJsonResult, Cmd.none)
 
 onScreen : TimeWindow -> Maybe FadedScreenEvent -> Bool
 onScreen { top, bottom } mfse = case mfse of
@@ -243,41 +308,49 @@ onScreen { top, bottom } mfse = case mfse of
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   let
-    focusedEventStillVisible = onScreen model.window model.focused
-    nextFocus = if focusedEventStillVisible
-      then MoveKeepFocus
-      else MoveFreeFocus
+    adjustMoveMode model0 =
+      let
+        focusedEventStillVisible = onScreen model.window model.focused
+        nextFocus = if focusedEventStillVisible
+          then MoveKeepFocus
+          else MoveFreeFocus
+      in
+        { model0
+        | moveMode = case model0.moveMode of
+          MoveFreeFocus -> MoveFreeFocus
+          MoveToFocus -> nextFocus
+          MoveKeepFocus -> nextFocus
+        , focused = if focusedEventStillVisible
+          then model0.focused
+          else Nothing
+        }
     { top, bottom } = model.window
     height = top - bottom
   in case msg of
     NoMsg -> (model, Cmd.none)
     NextFrame -> (updateModel model, Cmd.none)
-    Move d -> (
-      { model
-      | moveMode = case model.moveMode of
-        MoveFreeFocus -> MoveFreeFocus
-        MoveToFocus -> nextFocus
-        MoveKeepFocus -> nextFocus
-      , focused = if focusedEventStillVisible
-        then model.focused
-        else Nothing
-      , moveRate = d
+    Move d -> let model1 = adjustMoveMode model in (
+      { model1
+      | moveRate = d
       , moveDecay = 1
       , setSlider = Nothing
       }, Cmd.none)
-    MoveJog d -> let moveRate = model.moveRate - jogAmount * d in (
-      { model
-      | moveMode = case model.moveMode of
-        MoveFreeFocus -> MoveFreeFocus
-        MoveToFocus -> nextFocus
-        MoveKeepFocus -> nextFocus
-      , focused = if focusedEventStillVisible
-        then model.focused
-        else Nothing
-      , moveRate = moveRate
-      , setSlider = antilogit moveRate |> Just
-      , moveDecay = jogDecay
+    SliderTo d -> let model1 = adjustMoveMode model in (
+      { model1
+      | moveRate = floatToMoveRate d
+      , setSlider = Just d
+      , moveDecay = 1
       }, Cmd.none)
+    MoveJog d ->
+      let
+        moveRate = model.moveRate - jogAmount * d
+        model1 = adjustMoveMode model
+      in (
+        { model1
+        | moveRate = moveRate
+        , setSlider = antilogit moveRate |> Just
+        , moveDecay = jogDecay
+        }, Cmd.none)
     -- just stop when released for now
     MoveReleased -> ({ model | moveRate = 0, setSlider = Just 0 }, Cmd.none)
     Viewport vp_width vp_height -> ({ model | width = vp_width, height = vp_height }, Cmd.none)
@@ -390,6 +463,8 @@ subscriptions _ =
     , Time.every (1 / frameDelta) (\_ -> NextFrame)
     ]
 
+-- produce a keyed node for the HTML representing an event (or interval)
+-- on the timeline
 renderEvent : ScreenEvent -> (String, Html Msg)
 renderEvent e =
   ( "event_" ++ e.ev.name
@@ -399,8 +474,9 @@ renderEvent e =
   )
 
 eventPosX : Event -> Int
-eventPosX ev = 5 + ev.category * 4
+eventPosX ev = 5 + ev.category * 4 + ev.xOffset
 
+-- attributes for a rendered event (so, not an interval) in an event bar
 eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
 eventAttrs { top, ev } =
   [ style "position" "fixed"
@@ -429,19 +505,25 @@ intervalAttrs { top, bottom, ev } =
   , style "z-index" "2"
   , style "cursor" "pointer"
   , style "text-orientation" "mixed"
+  , style "text-shadow" "-1px 1px #444"
   , style "writing-mode" "vertical-rl"
   , style "overflow" "hidden"
   , style "color" ev.color
+  , style "border-style" "solid"
+  , style "border-color" "#666"
+  , style "border-width" "0px 0px 2px 2px"
+  , style "border-radius" "12px"
   , onClick <| FocusOn ev
   ]
 
-renderTick : Tick -> Html Msg
-renderTick { y, rendering } = Html.div
+renderTick : Tick -> (String, Html Msg)
+renderTick { y, rendering } = ("tick_" ++ rendering, Html.div
   [ style "position" "fixed"
   , style "top" (String.fromFloat (y * 100) ++ "%")
   , style "left" "0"
   , style "border-top" "black solid 1px"
-  ] [ Html.text rendering ]
+  , style "z-index" "2"
+  ] [ Html.text rendering ])
 
 logit : Float -> Float
 logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
@@ -454,16 +536,75 @@ logit x = Basics.logBase Basics.e ((1 + x) / (1 - x))
 antilogit : Float -> Float
 antilogit y = 1 - 2 / (1 + Basics.e ^ y)
 
+floatToMoveRate : Float -> Float
+floatToMoveRate x = x * 0.999 |> logit
+
 stringToMove : String -> Msg
 stringToMove s = case String.toFloat s of
-  Just x -> x * 0.999 |> logit |> Move
+  Just x -> x |> floatToMoveRate |> Move
   Nothing -> NoMsg
 
 getMiddlest : List ScreenEvent -> Maybe ScreenEvent
 getMiddlest = minimumBy (\{ unclampedMiddle } -> abs (0.5 - unclampedMiddle))
 
-view : Model -> Html Msg
-view { events, window, width, height, focused, setSlider } =
+getBackground : List ColourStop -> TimeWindow -> String
+getBackground backgroundGradientStops { top, bottom } =
+  let
+    lerpTimeColour : Float -> ColourStop -> ColourStop -> ColourStop
+    lerpTimeColour t cs0 cs1 = let p = (t - cs0.t) / (cs1.t - cs0.t) in
+      ColourStop t (cs0.r + (cs1.r - cs0.r) * p) (cs0.g + (cs1.g - cs0.g) * p) (cs0.b + (cs1.b - cs0.b) * p)
+    code0 : Int
+    code0 = Char.toCode '0'
+    codeA10 : Int
+    codeA10 = Char.toCode 'a' - 10
+    hexgit v =
+      if v < 0
+      then '0'
+      else if v < 10
+      then code0 + v |> Char.fromCode
+      else codeA10 + v |> Char.fromCode
+    hex v =
+      let
+        v1 = v * 16 |> Basics.floor
+        v0 = Basics.floor (v * 256) - v1 * 16
+      in if 15 < v1 then "ff" else String.fromList [hexgit v1, hexgit v0]
+    colour cs = "#" ++ hex cs.r ++ hex cs.g ++ hex cs.b
+    stopPercentage t = 100 * (t - bottom) / (top - bottom) |> String.fromFloat
+    stopDefinition : ColourStop -> String
+    stopDefinition cs = colour cs ++ " " ++ stopPercentage cs.t ++ "%"
+    getRemainingGradStops gradStop gradStops = case gradStops of
+        [] -> [gradStop, { gradStop | t = top }]
+        gs :: gss -> if gs.t < top
+          then gradStop :: getRemainingGradStops gs gss
+          else [gradStop, lerpTimeColour top gradStop gs]
+    getScreenGradStops gradStop gradStops = case gradStops of
+        [] -> colour gradStop
+        gs :: gss -> if gs.t < bottom
+          then getScreenGradStops gs gss
+          else
+            let
+              bottomColour = lerpTimeColour bottom gradStop gs |> colour
+              remainingStops = getRemainingGradStops gs gss
+              stopDefs = remainingStops |> List.map stopDefinition |> String.join ","
+            in "linear-gradient(to top," ++ bottomColour ++ " 0%," ++ stopDefs ++ ")"
+  in case backgroundGradientStops of
+      [] -> ""
+      gs :: gss -> getScreenGradStops gs gss
+
+focusedEventBackground : Event -> String
+focusedEventBackground ev = String.concat
+  [ "linear-gradient(135deg, "
+  , ev.fill
+  ,", "
+  , anticontrastColor ev.fill
+  , ")"
+  ]
+
+dontPropagateEvent : String -> Html.Attribute Msg
+dontPropagateEvent ev = Html.Events.stopPropagationOn ev <| DJ.succeed (NoMsg, True)
+
+view : Model -> Browser.Document Msg
+view { events, window, width, height, focused, setSlider, backgroundGradientStops } =
   let
     timeHeight = window.top - window.bottom
     timeMiddle = window.bottom + timeHeight / 2
@@ -471,8 +612,12 @@ view { events, window, width, height, focused, setSlider } =
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
     setPosition = case setSlider of
-        Nothing -> []
-        Just v -> [ String.fromFloat v |> value ]
+      Nothing -> []
+      Just v -> [ String.fromFloat v |> value ]
+    touchMoveSlider : Touch.Event -> Msg
+    touchMoveSlider event = case List.head event.touches of
+      Nothing -> NoMsg
+      Just touch -> 1 - clamp 0 2 (2 * (Tuple.second touch.clientPos - sliderTop) / sliderHeight) |> SliderTo
     { visibleEvents } = events
     eventBox elts = Html.div
       [ style "position" "fixed"
@@ -482,6 +627,7 @@ view { events, window, width, height, focused, setSlider } =
       , style "height" "100%"
       , style "z-index" "1"
       ] elts
+    -- focused event box and line joining it to the appropriate place in the event bar
     focusIndicators = case focused of
       Nothing -> [ eventBox [] ]
       Just { sev, fade } -> let opacity = fade |> Basics.min 1 |> String.fromFloat in
@@ -511,7 +657,19 @@ view { events, window, width, height, focused, setSlider } =
             [ style "position" "absolute"
             , style "top" "50%"
             , style "transform" "translateY(-50%)"
+            , style "max-width" "92%"
+            , style "max-height" "90%"
+            , style "overflow" "auto"
+            , style "scrollbar-width" "thin"
             , style "opacity" opacity
+            , style "color" sev.ev.color
+            , style "padding" "20px"
+            , style "border-style" "solid"
+            , style "border-width" "0px 0px 2px 2px"
+            , style "border-color" "#444"
+            , style "border-radius" "20px"
+            , focusedEventBackground sev.ev |> style "background-image"
+            , dontPropagateEvent "wheel"
             ]
             [ Event.pointIndex timeMiddle sev.ev
             |> sev.ev.renderPoint width
@@ -519,31 +677,48 @@ view { events, window, width, height, focused, setSlider } =
             ]
           ]
         ]
-  in div
-    [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float
-    ]
-    ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)
-    , getTicks window |> List.map renderTick |> Html.div []
-    , Html.input (setPosition ++
-      [ attribute "type" "range"
-      , attribute "min" "-1"
-      , attribute "max" "1"
-      , attribute "step" "0.01"
-      , onInput stringToMove
-      , onMouseUp MoveReleased
-      , style "position" "fixed"
-      , style "top" "0"
-      , style "left" "0"
-      , style "width" (String.fromFloat sliderHeight ++ "px")
-      , style "height" (String.fromInt sliderWidth ++ "px")
-      , style "transform"
-        ( "translate("
-        ++ (String.fromFloat (width - toFloat sliderWidth))
-        ++ "px,"
-        ++ (String.fromFloat (sliderHeight + sliderTop))
-        ++ "px) rotate(-90deg)"
-        )
-      , style "transform-origin" "top left"
-      , style "z-index" "2"
-      ]) []
-    ] ++ focusIndicators)
+    element = div
+      [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float  -- MoveJog message
+      ]
+      ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)  -- Event bars
+      , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []  -- Time axis ticks
+      , Html.input (setPosition ++  -- Time travel slider
+        [ attribute "type" "range"
+        , attribute "min" "-1"
+        , attribute "max" "1"
+        , attribute "step" "0.01"
+        , onInput stringToMove
+        , onMouseUp MoveReleased
+        , Touch.onEnd <| \_ -> MoveReleased
+        , Touch.onMove touchMoveSlider
+        , Touch.onStart touchMoveSlider
+        , style "position" "fixed"
+        , style "top" "0"
+        , style "left" "0"
+        , style "width" (String.fromFloat sliderHeight ++ "px")
+        , style "height" (String.fromInt sliderWidth ++ "px")
+        , style "transform"
+          ( "translate("
+          ++ (String.fromFloat (width - toFloat sliderWidth))
+          ++ "px,"
+          ++ (String.fromFloat (sliderHeight + sliderTop))
+          ++ "px) rotate(-90deg)"
+          )
+        , style "transform-origin" "top left"
+        , style "z-index" "2"
+        , style "touch-action" "none"
+        ]) []
+      , Html.div  -- Background gradient
+        [ style "background" (getBackground backgroundGradientStops window)
+        , style "position" "fixed"
+        , style "top" "0"
+        , style "left" "0"
+        , style "height" "100%"
+        , style "width" "100%"
+        , style "z-index" "0"
+        ] []
+      ] ++ focusIndicators)  -- focused event infromation
+  in
+    { title = "DeepTime"
+    , body = [element]
+    }

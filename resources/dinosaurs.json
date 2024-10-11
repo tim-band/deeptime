@@ -1,0 +1,370 @@
+[{
+  "name": "Asylosaurus",
+  "mya_start": 208.5,
+  "mya_end": 201.3,
+  "text": "An early sauropod around 2m in length. The only specimen we have is a partial specimen founded in Bristol, England.",
+  "license_text": "CC0",
+  "image":  "Asylosaurus.jpg",
+  "credit_image": "Nobu Tamura (http://spinops.blogspot.ca)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Camposaurus",
+  "mya_start": 220,
+  "mya_end": 210,
+  "text": "The earliest known neotheropod. A small meat-eater whose partial skeleton found in Arizona is the only specimen we have found.",
+  "license_text": "CC0",
+  "image": "Camposaurus.jpg",
+  "credit_image": "Tomozosaurus",
+  "license_image": "CC BY"
+}, {
+  "name": "Daemonosaurus",
+  "mya_start": 208,
+  "mya_end": 201,
+  "text": "A late triasic theropod, about 2 meters long.",
+  "license_text": "CC0",
+  "image": "Daemonosaurus.jpg",
+  "credit_image": "FunkMonk (Michael B. H.)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Eocursor",
+  "mya_start": 201.3,
+  "mya_end": 191,
+  "text": "One of the first \"bird-hipped\" dinosaurs. Its remains have been found in South Africa, about 1m long.",
+  "license_text": "CC0",
+  "image": "Eocursor.jpg",
+  "credit_image": "Nobu Tamura (http://spinops.blogspot.com)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Eoraptor",
+  "mya_start": 231,
+  "mya_end": 228,
+  "text": "One of the first theropods, about 1m long. Its remains have been found in Argentina.",
+  "license_text": "CC0",
+  "image": "Eoraptor.jpg",
+  "credit_image": "Conty",
+  "license_image": "CC BY"
+}, {
+  "name": "Gojirasaurus",
+  "mya_start": 210,
+  "mya_end": 209,
+  "text": "One of the largest meat-eating Triassic dinosaurs, about 5.5m long. Found in New Mexico, USA and named after Godzilla.",
+  "license_text": "CC0",
+  "image": "Gojirasaurus.jpg",
+  "credit_image": "Nobu Tamura (http://spinops.blogspot.com)",
+  "license_image": "CC BY"
+}, {
+  "name": "Liliensternus",
+  "mya_start": 210,
+  "mya_end": 209,
+  "text": "One of the largest Triassic theropods, about 5.15m long. It may have had a crest on its head.",
+  "license_text": "CC0",
+  "image": "Liliensternus-768x499.jpg",
+  "credit_image": "Ghedoghedo",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Melanorosaurus",
+  "mya_start": 227,
+  "mya_end": 221,
+  "text": "Large sauropodomorph, about 8m long.",
+  "license_text": "CC0",
+  "image": "Melanorosaurus.jpg",
+  "credit_image": "Steveoc 86",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Mussaurus",
+  "mya_start": 215,
+  "mya_end": 203,
+  "text": "A sauropodomorph, but only up to 3m long and 70kg in mass. Specimens have been found in Southern Argentina.",
+  "license_text": "CC0",
+  "image": "Mussaurus.jpg",
+  "credit_image": "Eva K.",
+  "license_image": "GFDL 1.2"
+}, {
+  "name": "Pisanosaurus",
+  "mya_start": 228,
+  "mya_end": 216.5,
+  "text": "Perhaps the first known ornithischian, perhaps not a dinosaur at all! It's jaws appear to have a chewing mechanism that we have not seen in other dinosaurs until millions of years later.",
+  "license_text": "CC0",
+  "image": "Pisanosaurus-768x451.jpg",
+  "credit_image": "Eduard Solà",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Staurikosaurus",
+  "mya_start": 234,
+  "mya_end": 233,
+  "text": "Small bipedal meat-eater, about 2.25m long.",
+  "license_text": "CC0",
+  "image": "Staurikosaurus.jpg",
+  "credit_image": "Nobu Tamura http://spinops.blogspot.com/",
+  "license_image": "CC BY"
+}, {
+  "name": "Thecodontosaurus",
+  "mya_start": 203.6,
+  "mya_end": 201.3,
+  "text": "Small bipedal meat-eater, about 2m long. Many specimens have been found in England.",
+  "license_text": "CC0",
+  "image": "Thecodontosaurus.jpg",
+  "credit_image": "Nobu Tamura http://spinops.blogspot.com/",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Allosaurus",
+  "mya_start": 155,
+  "mya_end": 150,
+  "text": "Found in the western US, and also in Portugal! A large bipedal theropod, a fearsome apex predator between 5 and 12m long.",
+  "license_text": "CC0",
+  "image": "Allosaurus_SDNHM.jpeg",
+  "credit_image": "Wikimedia Commons",
+  "license_image": "CC0"
+}, {
+  "name": "Apatosaurus",
+  "mya_start": 152,
+  "mya_end": 151,
+  "text": "Large sauropod, found in the western US, about 25m long. A similar specimen found later was named Brontosaurus that was later thought to be the same species as Apatosaurus, but is now considered to be different again.",
+  "license_text": "CC0",
+  "image": "512px-Louisae.jpeg",
+  "credit_image": "Wikimedia Commons",
+  "license_image": "CC0"
+}, {
+  "name": "Archaeopteryx",
+  "mya_start": 150.8,
+  "mya_end": 148.5,
+  "text": "Discovered in 1861 in Germany, Archaeopteryx provided evidence for the evolutionary theories of Charles Darwin and Thomas Henry Huxley, showing how birds evolved from dinosaurs. Archaeopteryx has teeth and clawed wings, together with bird features such as a wishbone and flight feathers. About 0.5m long.",
+  "license_text": "CC0",
+  "image": "512px-Berlin_Archaeopteryx.jpeg",
+  "credit_image": "Emily Willoughby (emily.a.willoughby@gmail.com)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Brachiosaurus",
+  "mya_start": 154,
+  "mya_end": 153,
+  "text": "Huge sauropod, found first in 1900 in Colorado USA, about 21m long.",
+  "license_text": "CC0",
+  "image": "Brachiosaurus_altithorax_fmnh_outside1.jpeg",
+  "credit_image": "MllePeterson",
+  "license_image": "CC BY"
+}, {
+  "name": "Brontosaurus",
+  "mya_start": 156.3,
+  "mya_end": 146.8,
+  "text": "Large sauropod, about 22m long. It's name means \"Thunder Lizard\". For a while it was thought to be the same dinosaur as Apatosaurus, but is now considered to be different.",
+  "license_text": "CC0",
+  "image": "Brontosaurus.jpg",
+  "credit_image": "Othniel Charles Marsh",
+  "license_image": "Public domain"
+}, {
+  "name": "Ceratosaurus",
+  "mya_start": 153,
+  "mya_end": 148,
+  "text": "A theropod with a horn on its nose, about 6m long.",
+  "license_text": "CC0",
+  "image": "Ceratosaurus.jpg",
+  "credit_image": "Jens Lallensack",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Compsognathus",
+  "mya_start": 153,
+  "mya_end": 148,
+  "text": "A small theropod, about 0.6m long.",
+  "license_text": "CC0",
+  "image": "Compsognathus.jpg",
+  "credit_image": "Nobu Tamura (http://spinops.blogspot.com)",
+  "license_image": "CC BY"
+}, {
+  "name": "Diplodocus",
+  "mya_start": 154,
+  "mya_end": 152,
+  "text": "A huge sauropod, about 27m long. It is thought it could rear up on its long hind legs to reach high foliage.",
+  "license_text": "CC0",
+  "image": "512px-Diplodocus_longus_Denver_1.jpeg",
+  "credit_image": "Etemenanki3",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Megalosaurus",
+  "mya_start": 166,
+  "mya_end": 165,
+  "text": "The first dinosaur to be named. The picture here is an inaccurate model installed at Crystal Palace Park in 1855; Megalosaurus is now known to have been a nimble bipedal theropod, around 9m long.",
+  "license_text": "CC0",
+  "image": "512px-SE_19_Jurassic_(7),_Megalosaurus_-_geograph.org.uk_-_5481222.jpeg",
+  "credit_image": "Stefan Czapski (https://www.geograph.org.uk/profile/19114)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Stegosaurus",
+  "mya_start": 155,
+  "mya_end": 150,
+  "text": "A heavily built plant-eater, around 9m long. The plates on the animal's back may have been defensive or for cooling.",
+  "license_text": "CC0",
+  "image": "512px-Stegosaurus_ungulatus.jpeg",
+  "credit_image": "Perry Quan from Oakville, Canada (https://www.flickr.com/people/89504146@N00)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Albertosaurus",
+  "mya_start": 71,
+  "mya_end": 68,
+  "text": "A large meat-eating dinosaur found in Alberta, Canada, measuring 8-10m in length. It had eyes on the side of its head, unlike the Tyrannosaurus who looked straight ahead.",
+  "license_text": "CC0",
+  "image": "512px-Albertosaurus_Royal_Tyrrell_2.jpeg",
+  "credit_image": "Etemenanki3",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Amargasaurus",
+  "mya_start": 129.4,
+  "mya_end": 122.46,
+  "text": "A 12m long sauropod found in Argentina. Its neck is short for a sauropod, with spines projecting upwards, possibly to support a crest.",
+  "license_text": "CC0",
+  "image": "Amargasaurus.jpg",
+  "credit_image": "Nobu Tamura (http://spinops.blogspot.ca)",
+  "license_image": "CC BY"
+}, {
+  "name": "Ankylosaurus",
+  "mya_start": 68,
+  "mya_end": 66,
+  "text": "A heavily-armoured 10m long ornithischian first found in Montana USA with a club at the end of its tail, weighting between 5 and 8 tonnes.",
+  "license_text": "CC0",
+  "image": "512px-Ankylozaur_(Ankylosaurus)_-_JuraPark_Baltow_(1).jpeg",
+  "credit_image": "JuraPark Bałtów",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Argentinosaurus",
+  "mya_start": 97,
+  "mya_end": 93.5,
+  "text": "A titanosaur growing to almost 40m long and weighing up to 88 tonnes.",
+  "license_text": "CC0",
+  "image": "Argentinosaurus.jpg",
+  "credit_image": "Photo by MathKnight and Zachi Evenor",
+  "license_image": "CC BY"
+}, {
+  "name": "Baryonyx",
+  "mya_start": 130,
+  "mya_end": 125,
+  "text": "An 8m long spinosaurid theropod.",
+  "license_text": "CC0",
+  "image": "baryonyx_walkeri_restoration-768x267.jpg",
+  "credit_image": "Photo by MathKnight and Zachi Evenor",
+  "license_image": "CC BY"
+}, {
+  "name": "Deinonychus",
+  "mya_start": 115,
+  "mya_end": 108,
+  "text": "A 4m long theropod with a large sharp claw on each claw. Probably hunted in packs. The velociraptors in Jurassic Park were based on Deinonychus rather than actual Velociraptors, which are considerably smaller.",
+  "license_text": "CC0",
+  "image": "512px-Fred_Wierum_Deinonychus.jpg",
+  "credit_image": "Fred Wierum",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Edmontosaurus",
+  "mya_start": 73,
+  "mya_end": 66,
+  "text": "One of the largest hadrosaurs, found in Canada and the USA. A 13m quadrapedal herd plant-eater.",
+  "license_text": "CC0",
+  "image": "Edmontosaurus.jpg",
+  "credit_image": "Kevin Walsh, Bicester, England",
+  "license_image": "CC BY"
+}, {
+  "name": "Gallimimus",
+  "mya_start": 70,
+  "mya_end": 69,
+  "text": "Ostrich-shaped theropod, 6m long. It had a toothless beak and feathers.",
+  "license_text": "CC0",
+  "image": "Gallimimus.jpg",
+  "credit_image": "Steveoc 86",
+  "license_image": "CC BY"
+}, {
+  "name": "Giganotosaurus",
+  "mya_start": 98,
+  "mya_end": 97,
+  "text": "One of the largest land predators ever to exist, a theropod larger even than Tyrannosaurus, albeit with a lesser bite force.",
+  "license_text": "CC0",
+  "image": "512px-Giganotosauro_Padova.jpeg",
+  "credit_image": "Andreone93",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Iguanodon",
+  "mya_start": 126,
+  "mya_end": 113,
+  "text": "One of the first dinosaurs to be named, a 10m long ornithopod.",
+  "license_text": "CC0",
+  "image": "512px-Iguanodon_de_Bernissart_IRSNB_01.jpeg",
+  "credit_image": "Model: Institut Royal des Sciences naturelles de Belgique, Bruxelles, Photo: Ben2 (https://commons.wikimedia.org/wiki/User:Ben2)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Microraptor",
+  "mya_start": 119,
+  "mya_end": 120,
+  "text": "A small (0.7m) bird-like dinosaur abundant in Asia. It had four wings and a feathered tail. It may have been capable of bird-like flight.",
+  "license_text": "CC0",
+  "image": "Microraptor.jpg",
+  "credit_image": "David W. E. Hone, Helmut Tischlinger, Xing Xu, Fucheng Zhang",
+  "license_image": "CC BY"
+}, {
+  "name": "Oviraptor",
+  "mya_start": 75,
+  "mya_end": 71,
+  "text": "A 1.8m long theropod, originally thought to live by stealing eggs.",
+  "license_text": "CC0",
+  "image": "Oviraptor_philoceratops-768x535.jpg",
+  "credit_image": "Ghedoghedo",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Parasaurolophus",
+  "mya_start": 76.5,
+  "mya_end": 73,
+  "text": "A 10m long ornithischian, with a long curved hollow crest curving backwards from its forehead.",
+  "license_text": "CC0",
+  "image": "640px-Parasaurolophus,_Expo_Dinosaurios_2023_-_A740980.jpeg",
+  "credit_image": "Photo by Rjcastillo (https://commons.wikimedia.org/wiki/User:Rjcastillo)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Protoceratops",
+  "mya_start": 75,
+  "mya_end": 71,
+  "text": "A relatively small (7m long) ornithischian, common in Asia, with a large crest protecting its neck. Probably lived in herds.",
+  "license_text": "CC0",
+  "image": "protoceratops_andrewsi.jpg",
+  "credit_image": "Jordi Payà from Barcelona, Catalonia",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Spinosaurus",
+  "mya_start": 112,
+  "mya_end": 93.5,
+  "text": "A large (13-17m long) theropod, found in North Africa, with a large crest protruding from its back, possibly used for display or temperature control. It hunted in water and on land.",
+  "license_text": "CC0",
+  "image": "512px-Spinoface.jpeg",
+  "credit_image": "Didier Descouens (https://commons.wikimedia.org/wiki/User:Archaeodontosaurus)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Triceratops",
+  "mya_start": 68,
+  "mya_end": 66,
+  "text": "A (9m long) ornithischian, found in North America, with three horns on its face and a frill on the back of its head.",
+  "license_text": "CC0",
+  "image": "Triceratops_Naturkundemuseum_Münster.jpeg",
+  "credit_image": "Photo: Thomas Ihle. Reconstruction: Eigene Aufnahme",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Tyrannosaurus",
+  "mya_start": 68,
+  "mya_end": 66,
+  "text": "A 12m long theropod with a huge head and powerful jaws, found in Western USA.",
+  "license_text": "CC0",
+  "image": "640px-Tyrannosaurus_Rex_Holotype.jpeg",
+  "credit_image": "Photo: Scott Robert Anselmo. Reconstruction: Carnegie Museum of Natural History, Pittsburgh",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Utahraptor",
+  "mya_start": 128,
+  "mya_end": 127,
+  "text": "One of the largest Dromaeosaurs, a 6m long theropod, found in Western USA, with a 35cm claw on each foot.",
+  "license_text": "CC0",
+  "image": "Utahraptor.jpg",
+  "credit_image": "Emily Willoughby (e.deinonychus@gmail.com, http://emilywilloughby.com)",
+  "license_image": "CC BY-SA"
+}, {
+  "name": "Velociraptor",
+  "mya_start": 75,
+  "mya_end": 71,
+  "text": "A 1.5-2m long theropod weighing 14-20kg, found in China and Mongolia. The velociraptors in the file Jurassic Park were modelled on Deinonychus rather than the much smaller real Velociraptor.",
+  "license_text": "CC0",
+  "image": "Velociraptor-2.jpg",
+  "credit_image": "Matt Martyniuk",
+  "license_image": "CC BY"
+}]

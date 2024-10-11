@@ -2,6 +2,7 @@ module Event exposing (..)
 
 import Base exposing (Time, TimeDelta, TimeWindow, present)
 import Html
+import Heap
 
 type alias Event =
   { category : Int
@@ -11,6 +12,7 @@ type alias Event =
   , fill : String
   , color : String
   , pointCount : Int
+  , xOffset : Int
   -- Render the focused event (will be put in the right hand pane)
   -- viewport width, and arguments are point index focused
   , renderPoint : Float -> Int -> Html.Html ()
@@ -26,8 +28,11 @@ type alias ScreenEvent =
   , ev : Event
   }
 
--- all of these (Time, TimeDelta) pairs come from Events run
--- through idealZoomSizes
+-- All of these (Time, TimeDelta) pairs come from Events run
+-- through idealZoomSizes.
+-- Each hint is a time and a delta. This indicates that the
+-- ideal height of the screen is the delta if the screen is
+-- centred on the time.
 type alias ZoomHints =
   { previouss : List (Time, TimeDelta)  -- reverse time order
   , previous : (Time, TimeDelta)
@@ -73,6 +78,7 @@ pointIndex t { start, end, pointCount } = case end of
       n = (toFloat pointCount) * (t - start) / (jend - start) |> Basics.round
     in Basics.clamp 0 (pointCount - 1) n
 
+-- get the event start, end and point times
 eventPointTimes : Event -> List Time
 eventPointTimes { start, end, pointCount } = case end of
   Nothing -> [ start ]
@@ -159,39 +165,37 @@ removeDuplicates sorted_list =
     h :: ts -> rd h ts
 
 findScreenEvents : TimeWindow -> List Event -> Events
-findScreenEvents window evs =
+findScreenEvents = findScreenEventsCustom 10 0.07
+
+findScreenEventsCustom : Int -> Float -> TimeWindow -> List Event -> Events
+findScreenEventsCustom minimalEventCount minimumEventSeparation window evs =
   let
-    minimalEventCount = 10
     { top, bottom } = window
     height = top - bottom
     mid = bottom + height / 2
-    zoomSizeTooEarly (t, _) = t < mid
     bookend : List Time -> List Time
     bookend ts = 0 :: present :: ts
-    zoomSizes = evs |> List.concatMap eventPointTimes |> bookend |> List.sort |> removeDuplicates |> idealZoomSizes minimalEventCount 0.07
-    (zoomSizesPrev, zoomSizesNext) = unzipList zoomSizeTooEarly zoomSizes
-    ((zp, zps), (zn, zns)) = case zoomSizesNext of
-      [] -> case zoomSizesPrev of
-        [] -> (((present, present), []), ((present, present), []))
-        [z] -> ((z, []), (z, []))
-        z0 :: z1 :: zs -> ((z1, zs), (z0, []))
-      [z] -> case zoomSizesPrev of
-        [] -> ((z, []), (z, []))
-        z0 :: zs -> ((z0, zs), (z, []))
-      z0 :: z1 :: zs -> case zoomSizesPrev of
-        [] -> ((z0, []), (z1, zs))
-        zp0 :: zp0s -> ((zp0, zp0s), (z0, z1 :: zs))
+    zoomSizes = evs
+      |> List.concatMap eventPointTimes
+      |> bookend
+      |> List.sort
+      |> removeDuplicates
+      |> idealZoomSizes minimalEventCount minimumEventSeparation
+    (zp, zn, zns) = case zoomSizes of
+      [] -> ((0, minimumWindowSize), (0, minimumWindowSize), [])
+      [z] -> ((0, minimumWindowSize), z, [])
+      y :: z :: zs -> (y, z, zs)
     tooEarly ev = eventEnd ev < bottom
     tooLate { start } = top < start
     justRight t = not (tooEarly t || tooLate t)
     visibles = evs |> List.filter justRight |> List.map (screenify top height)
     zoomHints =
-      { previouss = zps
+      { previouss = []
       , previous = zp
       , next = zn
       , nexts = zns
       }
-  in
+  in moveZoomHintsTo mid
     { previousEvents = List.filter tooEarly evs |> forwardEvents
     , visibleEvents = visibles
     , nextEvents = List.filter tooLate evs |> reverseEvents
@@ -264,6 +268,7 @@ idealZoomSizes idealEventCount minEventSeparation evs =
   let
     ahead1 = List.drop 1 evs
     ahead = List.drop idealEventCount evs
+    -- current = current event, next = next event, away = idealEventCount'th next event
     makeTimeHint current next away =
       let
         away_delta = away - current
@@ -271,3 +276,34 @@ idealZoomSizes idealEventCount minEventSeparation evs =
         delta = Basics.min away_delta limit
       in (current + (delta / 2), delta)
   in List.map3 makeTimeHint evs ahead1 ahead
+
+setXOffsets : List Event -> List Event
+setXOffsets events =
+  let
+    eventsSorted = List.sortBy (\e -> e.start) events
+    end e = Maybe.withDefault e.start e.end
+    -- set the X offset of the head of es (if it exists), then continue with the rest of es
+    doXOffsets : Int -> Heap.Heap Int -> Heap.Heap Event -> List Event -> List Event
+    doXOffsets next unoccupied currentEvents es = case es of
+      -- there are no new events, so just output current events
+      [] -> Heap.toList currentEvents
+      e0 :: es0 -> doXOffsetsHT next unoccupied currentEvents e0 es0
+    -- set the X offset of e0, then continue with the events in es0
+    -- after outputting all the events that finish before e0
+    doXOffsetsHT next unoccupied currentEvents e0 es0 = case Heap.pop currentEvents of
+      -- There are no current events to end, so the next edge is the start of the next event
+      Nothing -> setNextXOffset next unoccupied currentEvents e0 es0
+      -- There are current events, so does the next event to end end before the next
+      -- event to start starts?
+      Just (ce, ces) -> if end ce < e0.start
+        -- current event ending next
+        then ce :: doXOffsetsHT next (Heap.push ce.xOffset unoccupied) ces e0 es0
+        -- New event starting next
+        else setNextXOffset next unoccupied currentEvents e0 es0
+    -- set the X offset of e as whatever the next x offset should be
+    setNextXOffset next unoccupied currentEvents e es = case Heap.pop unoccupied of
+      -- there are no unoccupied offsets, so we'll make a new one
+      Nothing -> doXOffsets (next + 1) unoccupied (Heap.push {e | xOffset = next} currentEvents) es
+      -- there is an unoccupied offset, so we'll use that
+      Just (occ, occs) -> doXOffsets next occs (Heap.push {e | xOffset = occ} currentEvents) es
+  in doXOffsets 0 (Heap.empty Heap.smallest) (Heap.empty (Heap.smallest |> Heap.by end)) eventsSorted
