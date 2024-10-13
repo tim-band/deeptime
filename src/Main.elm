@@ -9,7 +9,6 @@ import Dict
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (attribute, style, value, height)
 import Html.Events exposing (onInput, onMouseUp, on)
-import Html.Events.Extra.Touch as Touch
 import Html.Keyed
 import Http
 import Json.Decode as DJ
@@ -34,6 +33,7 @@ import Event exposing (zoomHintHeight)
 import Gts
 import Human
 import Ticks exposing (Tick, getTicks)
+import TimeSlider exposing (TimeSlider)
 
 -- time (in seconds) between frames. The reciprocal of the frame rate
 frameDelta : Float
@@ -66,8 +66,6 @@ type alias Model =
   -- How much moveRate is scaled by per frame.
   -- 1 means no decay, 0 means instant decay.
   , moveDecay : Float
-  -- where to force the slider to go to
-  , setSlider : Maybe Float
   , window : TimeWindow
   , width : Float
   , height : Float
@@ -77,6 +75,7 @@ type alias Model =
   , licenses : Dict.Dict String String
   , dinosaurData : List Dinosaurs.Dinosaur
   , backgroundGradientStops : List BackgroundGradient.ColourStop
+  , timeSlider : TimeSlider Msg
   }
 
 type alias FadedScreenEvent =
@@ -109,13 +108,25 @@ updateFadedScreenEventY top height fsev = let ev = fsev.sev.ev in
 type Msg
   = NoMsg
   | NextFrame
-  | Move Float
   | MoveReleased
   | MoveJog Float
   | SliderTo Float  -- set the slider to number between -1 and 1, and set the move rate accordingly
   | Viewport Float Float
   | FocusOn Event
   | DataLoad (String -> Model -> (Result String Model, Cmd Msg)) (Result Http.Error String)
+  | StartTimeSliderDrag Float
+
+initialTimeSlider : TimeSlider Msg
+initialTimeSlider =
+  { value = 0
+  , height = 300
+  , top = 50
+  , startMsg = StartTimeSliderDrag
+  , dragMsg = SliderTo
+  , releaseMsg = MoveReleased
+  , noMsg = NoMsg
+  , dragOrigin = Nothing
+  }
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
@@ -124,7 +135,6 @@ init _ = let window = initWindow present 100 in
     , zoomRate = 1
     , moveRate = 0
     , moveDecay = 1
-    , setSlider = Just 0
     , window = window
     , width = 500
     , height = 500
@@ -134,6 +144,7 @@ init _ = let window = initWindow present 100 in
     , licenses = Dict.empty
     , dinosaurData = []
     , backgroundGradientStops = []
+    , timeSlider = initialTimeSlider
     }
   , Cmd.batch
     [ Task.attempt viewportMsg getViewport
@@ -329,17 +340,11 @@ update msg model =
   in case msg of
     NoMsg -> (model, Cmd.none)
     NextFrame -> (updateModel model, Cmd.none)
-    Move d -> let model1 = adjustMoveMode model in (
-      { model1
-      | moveRate = d
-      , moveDecay = 1
-      , setSlider = Nothing
-      }, Cmd.none)
     SliderTo d -> let model1 = adjustMoveMode model in (
       { model1
       | moveRate = floatToMoveRate d
-      , setSlider = Just d
       , moveDecay = 1
+      , timeSlider = TimeSlider.setValue model.timeSlider d
       }, Cmd.none)
     MoveJog d ->
       let
@@ -348,17 +353,26 @@ update msg model =
       in (
         { model1
         | moveRate = moveRate
-        , setSlider = antilogit moveRate |> Just
         , moveDecay = jogDecay
+        , timeSlider = antilogit moveRate |> TimeSlider.setValue model1.timeSlider
         }, Cmd.none)
     -- just stop when released for now
-    MoveReleased -> ({ model | moveRate = 0, setSlider = Just 0 }, Cmd.none)
-    Viewport vp_width vp_height -> ({ model | width = vp_width, height = vp_height }, Cmd.none)
+    MoveReleased -> (
+      { model
+      | moveRate = 0
+      , timeSlider = TimeSlider.reset model.timeSlider
+      }, Cmd.none)
+    Viewport vp_width vp_height ->
+      ({ model
+        | width = vp_width
+        , height = vp_height
+        , timeSlider = TimeSlider.setHeight model.timeSlider (vp_height/2) (vp_height /4)
+      }, Cmd.none)
     FocusOn ev ->
       ({ model
         | focused = Just { sev = Event.screenify top height ev, fade = 2 }
         , moveMode = MoveToFocus
-        , setSlider = Just 0
+        , timeSlider = TimeSlider.reset model.timeSlider
         }
       , Cmd.none
       )
@@ -366,6 +380,7 @@ update msg model =
       (Err err, cmd) -> let _ = Debug.log "failed to decode" err in (model, cmd)
       (Ok model1, cmd) -> (model1, cmd)
     DataLoad _ (Err err) -> let _ = Debug.log "failed to get" (showError err) in (model, Cmd.none)
+    StartTimeSliderDrag y -> ({model | timeSlider = TimeSlider.start model.timeSlider y}, Cmd.none)
 
 midTime : Event -> Time
 midTime ev = (ev.start + eventEnd ev) / 2
@@ -406,7 +421,7 @@ updateModel model =
   let
     springConstant = 0.03
     damping = 0.07
-    { zoomRate, moveMode, moveRate, moveDecay, setSlider, window, focused } = model
+    { zoomRate, moveMode, moveRate, moveDecay, window, focused } = model
     height = window.top - window.bottom
     half = height / 2
     moveRate1 = case moveMode of
@@ -450,10 +465,10 @@ updateModel model =
     { model
     | window = window1
     , moveRate = moveRate1
-    , setSlider = Maybe.map (\_ -> antilogit moveRate1) setSlider
     , events = events
     , zoomRate = getZoomRate events window1 effectiveMoveRate zoomRate
     , focused = focused2
+    , timeSlider = TimeSlider.setValue model.timeSlider <| antilogit moveRate1
     }
 
 subscriptions : Model -> Sub Msg
@@ -539,11 +554,6 @@ antilogit y = 1 - 2 / (1 + Basics.e ^ y)
 floatToMoveRate : Float -> Float
 floatToMoveRate x = x * 0.999 |> logit
 
-stringToMove : String -> Msg
-stringToMove s = case String.toFloat s of
-  Just x -> x |> floatToMoveRate |> Move
-  Nothing -> NoMsg
-
 getMiddlest : List ScreenEvent -> Maybe ScreenEvent
 getMiddlest = minimumBy (\{ unclampedMiddle } -> abs (0.5 - unclampedMiddle))
 
@@ -604,20 +614,21 @@ dontPropagateEvent : String -> Html.Attribute Msg
 dontPropagateEvent ev = Html.Events.stopPropagationOn ev <| DJ.succeed (NoMsg, True)
 
 view : Model -> Browser.Document Msg
-view { events, window, width, height, focused, setSlider, backgroundGradientStops } =
+view
+  { events
+  , window
+  , width
+  , height
+  , focused
+  , backgroundGradientStops
+  , timeSlider
+  } =
   let
     timeHeight = window.top - window.bottom
     timeMiddle = window.bottom + timeHeight / 2
-    sliderWidth = 30
+    sliderWidth = 100
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
-    setPosition = case setSlider of
-      Nothing -> []
-      Just v -> [ String.fromFloat v |> value ]
-    touchMoveSlider : Touch.Event -> Msg
-    touchMoveSlider event = case List.head event.touches of
-      Nothing -> NoMsg
-      Just touch -> 1 - clamp 0 2 (2 * (Tuple.second touch.clientPos - sliderTop) / sliderHeight) |> SliderTo
     { visibleEvents } = events
     eventBox elts = Html.div
       [ style "position" "fixed"
@@ -682,32 +693,10 @@ view { events, window, width, height, focused, setSlider, backgroundGradientStop
       ]
       ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)  -- Event bars
       , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []  -- Time axis ticks
-      , Html.input (setPosition ++  -- Time travel slider
-        [ attribute "type" "range"
-        , attribute "min" "-1"
-        , attribute "max" "1"
-        , attribute "step" "0.01"
-        , onInput stringToMove
-        , onMouseUp MoveReleased
-        , Touch.onEnd <| \_ -> MoveReleased
-        , Touch.onMove touchMoveSlider
-        , Touch.onStart touchMoveSlider
-        , style "position" "fixed"
-        , style "top" "0"
-        , style "left" "0"
-        , style "width" (String.fromFloat sliderHeight ++ "px")
-        , style "height" (String.fromInt sliderWidth ++ "px")
-        , style "transform"
-          ( "translate("
-          ++ (String.fromFloat (width - toFloat sliderWidth))
-          ++ "px,"
-          ++ (String.fromFloat (sliderHeight + sliderTop))
-          ++ "px) rotate(-90deg)"
-          )
-        , style "transform-origin" "top left"
-        , style "z-index" "2"
-        , style "touch-action" "none"
-        ]) []
+      , TimeSlider.view timeSlider
+        [ style "right" "0"
+        , style "width" "100px"
+        ]
       , Html.div  -- Background gradient
         [ style "background" (getBackground backgroundGradientStops window)
         , style "position" "fixed"
