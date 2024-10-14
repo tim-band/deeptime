@@ -3,7 +3,7 @@ module Main exposing (main)
 import Basics exposing (..)
 import Browser
 import Browser.Dom exposing (getViewport)
-import Browser.Events exposing (onResize)
+import Browser.Events exposing (onResize, onAnimationFrameDelta)
 import Csv.Decode as DC
 import Dict
 import Html exposing (Html, div, text)
@@ -35,15 +35,11 @@ import Human
 import Ticks exposing (Tick, getTicks)
 import TimeSlider exposing (TimeSlider)
 
--- time (in seconds) between frames. The reciprocal of the frame rate
-frameDelta : Float
-frameDelta = 0.05
-
 jogAmount : Float
 jogAmount = 0.0003
 
 jogDecay : Float
-jogDecay = 0.6 ^ frameDelta
+jogDecay = 0.6
 
 main : Program () Model Msg
 main = Browser.document
@@ -76,6 +72,7 @@ type alias Model =
   , dinosaurData : List Dinosaurs.Dinosaur
   , backgroundGradientStops : List BackgroundGradient.ColourStop
   , timeSlider : TimeSlider Msg
+  , frameDelta : Float -- time in seconds since last frame
   }
 
 type alias FadedScreenEvent =
@@ -107,26 +104,21 @@ updateFadedScreenEventY top height fsev = let ev = fsev.sev.ev in
 
 type Msg
   = NoMsg
-  | NextFrame
+  | NextFrame Float
   | MoveReleased
   | MoveJog Float
   | SliderTo Float  -- set the slider to number between -1 and 1, and set the move rate accordingly
   | Viewport Float Float
   | FocusOn Event
   | DataLoad (String -> Model -> (Result String Model, Cmd Msg)) (Result Http.Error String)
-  | StartTimeSliderDrag Float
+  | StartTimeSliderDrag TimeSlider.TimeSliderStartMsg
 
 initialTimeSlider : TimeSlider Msg
-initialTimeSlider =
-  { value = 0
-  , height = 300
-  , top = 50
-  , startMsg = StartTimeSliderDrag
-  , dragMsg = SliderTo
-  , releaseMsg = MoveReleased
-  , noMsg = NoMsg
-  , dragOrigin = Nothing
-  }
+initialTimeSlider = TimeSlider.init
+  StartTimeSliderDrag
+  SliderTo
+  MoveReleased
+  NoMsg
 
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
@@ -145,6 +137,7 @@ init _ = let window = initWindow present 100 in
     , dinosaurData = []
     , backgroundGradientStops = []
     , timeSlider = initialTimeSlider
+    , frameDelta = 0.05
     }
   , Cmd.batch
     [ Task.attempt viewportMsg getViewport
@@ -339,7 +332,7 @@ update msg model =
     height = top - bottom
   in case msg of
     NoMsg -> (model, Cmd.none)
-    NextFrame -> (updateModel model, Cmd.none)
+    NextFrame delta -> (updateModel model (delta * 0.001), Cmd.none)
     SliderTo d -> let model1 = adjustMoveMode model in (
       { model1
       | moveRate = floatToMoveRate d
@@ -353,7 +346,7 @@ update msg model =
       in (
         { model1
         | moveRate = moveRate
-        , moveDecay = jogDecay
+        , moveDecay = jogDecay ^ model.frameDelta
         , timeSlider = antilogit moveRate |> TimeSlider.setValue model1.timeSlider
         }, Cmd.none)
     -- just stop when released for now
@@ -366,7 +359,12 @@ update msg model =
       ({ model
         | width = vp_width
         , height = vp_height
-        , timeSlider = TimeSlider.setHeight model.timeSlider (vp_height/2) (vp_height /4)
+        , timeSlider = TimeSlider.setDimensions
+          model.timeSlider
+          100
+          (vp_height/2)
+          (vp_width - 100)
+          (vp_height /4)
       }, Cmd.none)
     FocusOn ev ->
       ({ model
@@ -380,13 +378,13 @@ update msg model =
       (Err err, cmd) -> let _ = Debug.log "failed to decode" err in (model, cmd)
       (Ok model1, cmd) -> (model1, cmd)
     DataLoad _ (Err err) -> let _ = Debug.log "failed to get" (showError err) in (model, Cmd.none)
-    StartTimeSliderDrag y -> ({model | timeSlider = TimeSlider.start model.timeSlider y}, Cmd.none)
+    StartTimeSliderDrag sm -> ({model | timeSlider = TimeSlider.start model.timeSlider sm}, Cmd.none)
 
 midTime : Event -> Time
 midTime ev = (ev.start + eventEnd ev) / 2
 
-getZoomRate : Events -> TimeWindow -> Float -> Float -> Float
-getZoomRate events window moveRate currentZoomRate =
+getZoomRate : Events -> TimeWindow -> Float -> Float -> Float -> Float
+getZoomRate events window moveRate currentZoomRate frameDelta =
   let
     maximumScreensPerSecond = 0.8
     zoomRateCoefficient = 1
@@ -416,8 +414,8 @@ getZoomRate events window moveRate currentZoomRate =
     clampedLogZoomRate = Basics.clamp -logMaxDistance logMaxDistance logSmoothedZoomRate
   in Basics.e ^ clampedLogZoomRate
 
-updateModel : Model -> Model
-updateModel model =
+updateModel : Model -> Float -> Model
+updateModel model frameDelta =
   let
     springConstant = 0.03
     damping = 0.07
@@ -466,16 +464,18 @@ updateModel model =
     | window = window1
     , moveRate = moveRate1
     , events = events
-    , zoomRate = getZoomRate events window1 effectiveMoveRate zoomRate
+    , zoomRate = getZoomRate events window1 effectiveMoveRate zoomRate model.frameDelta
     , focused = focused2
     , timeSlider = TimeSlider.setValue model.timeSlider <| antilogit moveRate1
+    , frameDelta = frameDelta
     }
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
   Sub.batch
     [ onResize (\w h -> Viewport (toFloat w) (toFloat h))
-    , Time.every (1 / frameDelta) (\_ -> NextFrame)
+    , onAnimationFrameDelta NextFrame
+    , Browser.Events.onMouseUp <| DJ.succeed MoveReleased
     ]
 
 -- produce a keyed node for the HTML representing an event (or interval)
@@ -640,9 +640,9 @@ view
       ] elts
     -- focused event box and line joining it to the appropriate place in the event bar
     focusIndicators = case focused of
-      Nothing -> [ eventBox [] ]
+      Nothing -> [ ("event-box", eventBox []) ]
       Just { sev, fade } -> let opacity = fade |> Basics.min 1 |> String.fromFloat in
-        [ Svg.svg
+        [ ("line-from-event-to-focused", Svg.svg
           [ style "position" "fixed"
           , style "top" "0%"
           , style "left" "0%"
@@ -662,8 +662,8 @@ view
             , Svga.stroke "black"
             , Svga.opacity opacity
             ] []
-          ]
-        , eventBox
+          ])
+        , ("event-box", eventBox
           [ Html.div
             [ style "position" "absolute"
             , style "top" "50%"
@@ -686,18 +686,15 @@ view
             |> sev.ev.renderPoint width
             |> Html.map (\_ -> NoMsg)
             ]
-          ]
+          ])
         ]
-    element = div
+    element = Html.Keyed.node "div"
       [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float  -- MoveJog message
       ]
-      ([ Html.Keyed.node "div" [] (List.map renderEvent visibleEvents)  -- Event bars
-      , getTicks window |> List.map renderTick |> Html.Keyed.node "div" []  -- Time axis ticks
-      , TimeSlider.view timeSlider
-        [ style "right" "0"
-        , style "width" "100px"
-        ]
-      , Html.div  -- Background gradient
+      ([ ("event-bars", Html.Keyed.node "div" [] (List.map renderEvent visibleEvents))
+      , ("time-axis-ticks", getTicks window |> List.map renderTick |> Html.Keyed.node "div" [])
+      , ("time-slider", TimeSlider.view timeSlider)
+      , ("background-gradient", Html.div
         [ style "background" (getBackground backgroundGradientStops window)
         , style "position" "fixed"
         , style "top" "0"
@@ -705,7 +702,7 @@ view
         , style "height" "100%"
         , style "width" "100%"
         , style "z-index" "0"
-        ] []
+        ] [])
       ] ++ focusIndicators)  -- focused event infromation
   in
     { title = "DeepTime"
