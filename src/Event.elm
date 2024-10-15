@@ -5,14 +5,16 @@ import Html
 import Heap
 
 type alias Event =
-  { category : Int
+  { category : String
   , start : Time
   , end : Maybe Time
   , name : String
   , fill : String
   , color : String
   , pointCount : Int
-  , xOffset : Int
+  -- offset this event towards the next lane
+  -- (between 0 and 1, where 1 is actually in the next lane)
+  , xOffset : Float
   -- Render the focused event (will be put in the right hand pane)
   -- viewport width, and arguments are point index focused
   , renderPoint : Float -> Int -> Html.Html ()
@@ -283,13 +285,14 @@ setXOffsets events =
     eventsSorted = List.sortBy (\e -> e.start) events
     end e = Maybe.withDefault e.start e.end
     -- set the X offset of the head of es (if it exists), then continue with the rest of es
-    doXOffsets : Int -> Heap.Heap Int -> Heap.Heap Event -> List Event -> List Event
+    doXOffsets : Float -> Heap.Heap Float -> Heap.Heap Event -> List Event -> List Event
     doXOffsets next unoccupied currentEvents es = case es of
       -- there are no new events, so just output current events
       [] -> Heap.toList currentEvents
       e0 :: es0 -> doXOffsetsHT next unoccupied currentEvents e0 es0
     -- set the X offset of e0, then continue with the events in es0
     -- after outputting all the events that finish before e0
+    doXOffsetsHT : Float -> Heap.Heap Float -> Heap.Heap Event -> Event -> List Event -> List Event
     doXOffsetsHT next unoccupied currentEvents e0 es0 = case Heap.pop currentEvents of
       -- There are no current events to end, so the next edge is the start of the next event
       Nothing -> setNextXOffset next unoccupied currentEvents e0 es0
@@ -306,4 +309,9 @@ setXOffsets events =
       Nothing -> doXOffsets (next + 1) unoccupied (Heap.push {e | xOffset = next} currentEvents) es
       -- there is an unoccupied offset, so we'll use that
       Just (occ, occs) -> doXOffsets next occs (Heap.push {e | xOffset = occ} currentEvents) es
-  in doXOffsets 0 (Heap.empty Heap.smallest) (Heap.empty (Heap.smallest |> Heap.by end)) eventsSorted
+    initEventHeap = Heap.empty (Heap.smallest |> Heap.by end)
+    -- events with their xOffsets set to integer values
+    events1 = doXOffsets 0 (Heap.empty Heap.smallest) initEventHeap eventsSorted
+    -- the maximum xOffset
+    maxOffset = events1 |> List.map (\e -> e.xOffset) |> List.maximum |> Maybe.withDefault 1
+  in events1 |> List.map (\e -> {e | xOffset = e.xOffset / maxOffset})

@@ -16,7 +16,7 @@ imageDir w = if w < 1000
 geography : Event
 geography =
   { name = "Geography"
-  , category = 0
+  , category = "geog"
   , start = present - 410e6
   , end = Just present
   , fill = "#604010"

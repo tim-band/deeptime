@@ -20,7 +20,7 @@ decode =
   let
     h2e id fill mya picture text =
       { name = id
-      , category = 8
+      , category = "human"
       , start = present - mya * 1e6
       , end = Nothing
       , fill = fill

@@ -57,7 +57,7 @@ to_interval license_href
   , credit_image
   , license_image
   } =
-  { category = 9
+  { category = "dino"
   , start = present - mya_start * 1e6
   , end = present - mya_end * 1e6 |> Maybe.Just
   , name = name

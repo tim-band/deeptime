@@ -250,7 +250,7 @@ gtsMap width latlng =
 
 gtsToEvent : Gts -> Event
 gtsToEvent gts =
-  { category = 9
+  { category = "gts"
   , start = gts.time
   , end = Nothing
   , name = gts.sample

@@ -52,7 +52,17 @@ main = Browser.document
 initWindow : Time -> TimeDelta -> TimeWindow
 initWindow top size = { top = top, bottom = top - size }
 
-type MoveMode = MoveFreeFocus Int | MoveKeepFocus | MoveToFocus
+category2lane : Dict.Dict String Float
+category2lane = Dict.fromList
+  [ ("strat", 0)
+  , ("geog", 1)
+  , ("bang", 1)
+  , ("human", 1.2)
+  , ("dino", 1.4)
+  , ("gts", 1.4)
+  ]
+
+type MoveMode = MoveFreeFocus String | MoveKeepFocus | MoveToFocus
 
 type alias Model =
   { events : Event.Events
@@ -123,7 +133,7 @@ initialTimeSlider = TimeSlider.init
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
   ( { events = Event.findScreenEvents window [Geography.geography]
-    , moveMode = MoveFreeFocus 0
+    , moveMode = MoveFreeFocus "geog"
     , zoomRate = 1
     , moveRate = 0
     , moveDecay = 1
@@ -492,8 +502,11 @@ renderEvent e =
     Nothing -> div (eventAttrs e) [ text e.ev.name ]
   )
 
-eventPosX : Event -> Int
-eventPosX ev = 5 + ev.category * 4 + ev.xOffset
+eventPosX : Event -> Float
+eventPosX ev =
+  let
+    lane = Dict.get ev.category category2lane |> Maybe.withDefault -1
+  in 27 + (lane + ev.xOffset) * 180
 
 -- attributes for a rendered event (so, not an interval) in an event bar
 eventAttrs : ScreenEvent -> List (Html.Attribute Msg)
@@ -501,7 +514,7 @@ eventAttrs { top, ev } =
   [ style "position" "fixed"
   , style "top" (String.fromFloat (top * 100) ++ "%")
   , style "height" "100px"
-  , style "left" (String.fromInt (eventPosX ev) ++ "%")
+  , style "left" (String.fromFloat (eventPosX ev) ++ "px")
   , style "border" "1px solid black"
   , style "border-radius" "0 10px 10px 10px"
   , style "background" ev.fill
@@ -519,7 +532,7 @@ intervalAttrs { top, bottom, ev } =
   [ style "position" "fixed"
   , style "top" (String.fromFloat (top * 100) ++ "%")
   , style "height" (String.fromFloat ((bottom - top) * 100) ++ "%")
-  , style "left" (String.fromInt (eventPosX ev) ++ "%")
+  , style "left" (String.fromFloat (eventPosX ev) ++ "px")
   , style "background" ev.fill
   , style "z-index" "2"
   , style "cursor" "pointer"
@@ -559,7 +572,7 @@ floatToMoveRate : Float -> Float
 floatToMoveRate x = x * 0.999 |> logit
 
 -- get the closest event in the requested category to the middle of the screen
-getMiddlest : Int -> List ScreenEvent -> Maybe ScreenEvent
+getMiddlest : String -> List ScreenEvent -> Maybe ScreenEvent
 getMiddlest category sevs =
   sevs
   |> List.filter (\{ ev } -> ev.category == category)
@@ -638,10 +651,12 @@ view
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
     { visibleEvents } = events
+    -- At what x co-ordinate (in pixels) does the event box start?
+    eventBoxLeftPx = 480
     eventBox elts = Html.div
       [ style "position" "fixed"
-      , style "width" "50%"
-      , style "left" "50%"
+      , style "width" <| String.fromFloat (width - toFloat eventBoxLeftPx) ++ "px"
+      , style "left"  <| String.fromInt eventBoxLeftPx ++ "px"
       , style "top" "0%"
       , style "height" "100%"
       , style "z-index" "1"
@@ -663,9 +678,9 @@ view
             |> Svga.viewBox
           ]
           [ Svg.line
-            [ toFloat (eventPosX sev.ev) / 100 * width |> Basics.round |> String.fromInt |> Svga.x1
+            [ eventPosX sev.ev |> Basics.round |> String.fromInt |> Svga.x1
             , (sev.top + sev.bottom) * 0.5 * height |> Basics.round |> String.fromInt |> Svga.y1
-            , 0.5 * width |> Basics.round |> String.fromInt |> Svga.x2
+            , eventBoxLeftPx |> String.fromInt |> Svga.x2
             , 0.5 * height |> Basics.round |> String.fromInt |> Svga.y2
             , Svga.stroke "black"
             , Svga.opacity opacity

@@ -17,7 +17,7 @@ decode =
   let
     bb2e name start end fill description =
       { name = name
-      , category = 3
+      , category = "bang"
       , start = start / seconds_per_year
       , end = end / seconds_per_year |> Just
       , fill = fill

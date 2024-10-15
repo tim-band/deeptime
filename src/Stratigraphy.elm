@@ -69,16 +69,16 @@ events dd ints =
     addEvent id std acc = case Dict.get id ints of
       Nothing -> acc
       Just (FloatInterval start end) ->
-        { category = case Dict.get std.type_ categoryDict of
-          Nothing -> 7
-          Just c -> c + 1
+        { xOffset = case Dict.get std.type_ categoryDict of
+          Nothing -> 0.84
+          Just c -> 0.14 * toFloat c
         , start = present - start * 1e6
         , end = Just <| present - end * 1e6
         , name = std.name
         , fill = std.fill
         , color = "black"
         , pointCount = 1
-        , xOffset = 0
+        , category = "strat"
         , renderPoint = \_ _ -> Html.text std.name
         } :: acc
   in Dict.foldr addEvent [] dd
