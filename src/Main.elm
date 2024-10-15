@@ -52,7 +52,7 @@ main = Browser.document
 initWindow : Time -> TimeDelta -> TimeWindow
 initWindow top size = { top = top, bottom = top - size }
 
-type MoveMode = MoveFreeFocus | MoveKeepFocus | MoveToFocus
+type MoveMode = MoveFreeFocus Int | MoveKeepFocus | MoveToFocus
 
 type alias Model =
   { events : Event.Events
@@ -123,7 +123,7 @@ initialTimeSlider = TimeSlider.init
 init : () -> (Model, Cmd Msg)
 init _ = let window = initWindow present 100 in
   ( { events = Event.findScreenEvents window [Geography.geography]
-    , moveMode = MoveFreeFocus
+    , moveMode = MoveFreeFocus 0
     , zoomRate = 1
     , moveRate = 0
     , moveDecay = 1
@@ -304,29 +304,31 @@ licenseUpdate resp model =
     then (res |> Result.map updateLicense |> decodeJsonResult, Cmd.none)
     else (res |> Result.map (\lics -> updateLicenceAndDinosaurEvents lics model.dinosaurData model) |> decodeJsonResult, Cmd.none)
 
-onScreen : TimeWindow -> Maybe FadedScreenEvent -> Bool
-onScreen { top, bottom } mfse = case mfse of
-  Nothing -> False
-  Just { sev } -> bottom <= eventEnd sev.ev && sev.ev.start <= top
+-- Returns mv if p is true otherwise Nothing
+unless : (a -> Bool) -> Maybe a -> Maybe a
+unless p mv = mv |> Maybe.andThen (\v -> if p v then mv else Nothing)
+
+-- If there is a focused event and it is on screen return it.
+onScreen : TimeWindow -> Maybe FadedScreenEvent -> Maybe FadedScreenEvent
+onScreen { top, bottom } mfse = mfse |> unless
+  (\{sev} -> bottom <= eventEnd sev.ev && sev.ev.start <= top)
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   let
     adjustMoveMode model0 =
       let
-        focusedEventStillVisible = onScreen model.window model.focused
-        nextFocus = if focusedEventStillVisible
-          then MoveKeepFocus
-          else MoveFreeFocus
+        focused = onScreen model.window model.focused
+        nextFocus = case focused of
+          Nothing -> MoveKeepFocus
+          Just fsev -> MoveFreeFocus fsev.sev.ev.category
       in
         { model0
         | moveMode = case model0.moveMode of
-          MoveFreeFocus -> MoveFreeFocus
+          MoveFreeFocus c -> MoveFreeFocus c
           MoveToFocus -> nextFocus
           MoveKeepFocus -> nextFocus
-        , focused = if focusedEventStillVisible
-          then model0.focused
-          else Nothing
+        , focused = focused
         }
     { top, bottom } = model.window
     height = top - bottom
@@ -423,7 +425,7 @@ updateModel model frameDelta =
     height = window.top - window.bottom
     half = height / 2
     moveRate1 = case moveMode of
-      MoveFreeFocus -> moveRate * moveDecay
+      MoveFreeFocus _ -> moveRate * moveDecay
       MoveKeepFocus -> moveRate * moveDecay
       MoveToFocus -> case focused of
         Nothing -> moveRate
@@ -446,18 +448,20 @@ updateModel model frameDelta =
     effectiveMoveRate = (mid - mid0) / frameDelta
     window1 = { top = mid + newHalf, bottom = mid - newHalf }
     events = Event.adjustScreenEvents window1 model.events
-    middlest = getMiddlest events.visibleEvents
     focused1 = case moveMode of
       MoveToFocus -> focused
-      MoveKeepFocus -> if onScreen window focused then focused else Nothing
-      MoveFreeFocus -> case focused of
-        Nothing -> Maybe.map (\e -> { sev = e, fade = 0 }) middlest
-        Just foc0 ->
-          case middlest of
-            Nothing -> fadeDownFocused focused
-            Just sevp -> if Event.same sevp.ev foc0.sev.ev
-              then Just <| fadeUpFocused foc0
-              else fadeDownFocused focused
+      MoveKeepFocus -> onScreen window focused
+      MoveFreeFocus  category -> 
+        let
+          middlest = getMiddlest category events.visibleEvents
+        in case focused of
+          Nothing -> Maybe.map (\e -> { sev = e, fade = 0 }) middlest
+          Just foc0 ->
+            case middlest of
+              Nothing -> fadeDownFocused focused
+              Just sevp -> if Event.same sevp.ev foc0.sev.ev
+                then Just <| fadeUpFocused foc0
+                else fadeDownFocused focused
     focused2 = Maybe.map (updateFadedScreenEventY window1.top (newHalf * 2)) focused1
   in
     { model
@@ -554,8 +558,12 @@ antilogit y = 1 - 2 / (1 + Basics.e ^ y)
 floatToMoveRate : Float -> Float
 floatToMoveRate x = x * 0.999 |> logit
 
-getMiddlest : List ScreenEvent -> Maybe ScreenEvent
-getMiddlest = minimumBy (\{ unclampedMiddle } -> abs (0.5 - unclampedMiddle))
+-- get the closest event in the requested category to the middle of the screen
+getMiddlest : Int -> List ScreenEvent -> Maybe ScreenEvent
+getMiddlest category sevs =
+  sevs
+  |> List.filter (\{ ev } -> ev.category == category)
+  |> minimumBy (\{ unclampedMiddle } -> abs (0.5 - unclampedMiddle))
 
 getBackground : List ColourStop -> TimeWindow -> String
 getBackground backgroundGradientStops { top, bottom } =
@@ -668,7 +676,7 @@ view
             [ style "position" "absolute"
             , style "top" "50%"
             , style "transform" "translateY(-50%)"
-            , style "max-width" "92%"
+            , style "max-width" "82%"
             , style "max-height" "90%"
             , style "overflow" "auto"
             , style "scrollbar-width" "thin"
