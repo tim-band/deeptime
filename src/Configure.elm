@@ -1,20 +1,30 @@
 module Configure exposing (..)
 
+import Dict
 import Html exposing (Html, div, input, label, text)
-import Html.Attributes exposing (id, style, type_, for, checked, value)
+import Html.Attributes exposing (id, style, type_, for, checked)
 import Html.Events exposing (onClick)
 import Set
 import Svg
 import Svg.Attributes as Svga
 
+categoryName : Dict.Dict String String
+categoryName = Dict.fromList
+  [ ("geog", "Geography")
+  , ("bang", "Big Bang")
+  , ("human", "Human evolution")
+  , ("dino", "Dinosaurs")
+  , ("gts", "Geological Time Scale evidence")
+  ]
+
 categoryChecklist :
   (String -> msg)
   -> (String -> msg)
-  -> List String
   -> Set.Set String
   -> Html msg
-categoryChecklist checkMsg uncheckMsg categories catsChecked =
+categoryChecklist checkMsg uncheckMsg catsChecked =
   let
+    categoryCodes = Dict.keys categoryName
     checkify : String -> Html msg
     checkify s =
       let
@@ -25,27 +35,35 @@ categoryChecklist checkMsg uncheckMsg categories catsChecked =
         , type_ "checkbox"
         , id <| "category_switch_" ++ s
         ] []
-      , label [ for <| "category_switch_" ++ s ] [text s]
+      , label [ for <| "category_switch_" ++ s ]
+        [Dict.get s categoryName |> Maybe.withDefault s |> text]
       ]
   in div
     [ style "position" "fixed"
     , style "top" "100px"
     , style "right" "0"
-    , style "background" "#80e0f0"
+    , style "background" "linear-gradient(135deg, #fff, #8ef, #aaa)"
+    , style "padding" "7px"
+    , style "border" "solid black 1px"
+    , style "border-radius" "6px"
     , style "z-index" "3"
-    ] <| List.map checkify categories
+    ] <| List.map checkify categoryCodes
 
 settings :
-  (String -> msg)
+  msg
   -> (String -> msg)
-  -> List String
+  -> (String -> msg)
   -> Set.Set String
   -> Html msg
-settings checkMsg uncheckMsg categories enabled =
-  div [] [ cogIcon, categoryChecklist checkMsg uncheckMsg categories enabled ]
+settings closeMsg checkMsg uncheckMsg enabled =
+  div [] [ cogIcon closeMsg, categoryChecklist checkMsg uncheckMsg enabled ]
 
-cogIcon : Html msg
-cogIcon = Svg.svg [ Svga.width "100px"
+settingsClosed : msg -> Html msg
+settingsClosed openMsg =
+  div [] [ cogIcon openMsg ]
+
+cogIcon : msg -> Html msg
+cogIcon m = Svg.svg [ Svga.width "100px"
   , Svga.height "100px"
   , Svga.viewBox "-50 -50 100 100"
   , Svga.version "1.1"
@@ -53,6 +71,7 @@ cogIcon = Svg.svg [ Svga.width "100px"
   , style "top" "0px"
   , style "right" "0px"
   , style "z-index" "10"
+  , onClick m
   ] [ cog 8 33 40 0.5 0.8 12 ]
 
 

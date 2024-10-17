@@ -84,6 +84,7 @@ type alias Model =
   , timeSlider : TimeSlider Msg
   , frameDelta : Float -- time in seconds since last frame
   , enabledCategories : Set.Set String
+  , settingsOpen : Bool
   }
 
 type alias FadedScreenEvent =
@@ -125,6 +126,8 @@ type Msg
   | StartTimeSliderDrag TimeSlider.TimeSliderStartMsg
   | EnableCategory String
   | DisableCategory String
+  | OpenSettings
+  | CloseSettings
 
 initialTimeSlider : TimeSlider Msg
 initialTimeSlider = TimeSlider.init
@@ -152,6 +155,7 @@ init _ = let window = initWindow present 100 in
     , timeSlider = initialTimeSlider
     , frameDelta = 0.05
     , enabledCategories = category2lane |> Dict.keys |> Set.fromList
+    , settingsOpen = False
     }
   , Cmd.batch
     [ Task.attempt viewportMsg getViewport
@@ -399,10 +403,25 @@ update msg model =
       {model
       | enabledCategories = model.enabledCategories |> Set.insert cat
       }, Cmd.none)
-    DisableCategory cat -> (
-      {model
-      | enabledCategories = model.enabledCategories |> Set.remove cat
-      }, Cmd.none)
+    DisableCategory cat ->
+      let
+        unfocus = case model.focused of
+          Just { sev } -> sev.ev.category == cat
+          Nothing -> False
+        cats = model.enabledCategories |> Set.remove cat
+      in if unfocus
+        then (
+          {model
+          | enabledCategories = cats
+          , moveMode = MoveFreeFocus "strat"
+          , focused = Nothing
+          }, Cmd.none)
+        else (
+          {model
+          | enabledCategories = cats
+          }, Cmd.none)
+    OpenSettings -> ({model | settingsOpen = True}, Cmd.none)
+    CloseSettings -> ({model | settingsOpen = False}, Cmd.none)
 
 midTime : Event -> Time
 midTime ev = (ev.start + eventEnd ev) / 2
@@ -662,6 +681,7 @@ view
   , backgroundGradientStops
   , timeSlider
   , enabledCategories
+  , settingsOpen
   } =
   let
     timeHeight = window.top - window.bottom
@@ -682,6 +702,15 @@ view
       , style "height" "100%"
       , style "z-index" "1"
       ] elts
+    settings = if settingsOpen
+      then
+        Configure.settings
+          CloseSettings
+          EnableCategory
+          DisableCategory
+          enabledCategories
+      else Configure.settingsClosed OpenSettings
+
     -- focused event box and line joining it to the appropriate place in the event bar
     focusIndicators = case focused of
       Nothing -> [ ("event-box", eventBox []) ]
@@ -748,13 +777,7 @@ view
         , style "z-index" "0"
         ] [])
       ] ++
-      [("cog"
-      , Configure.settings
-        EnableCategory
-        DisableCategory
-        (Dict.keys category2lane)
-        enabledCategories
-      )] ++ focusIndicators)  -- focused event infromation
+      [("cog", settings)] ++ focusIndicators)  -- focused event infromation
   in
     { title = "DeepTime"
     , body = [element]
