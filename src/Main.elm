@@ -14,24 +14,24 @@ import Http
 import Json.Decode as DJ
 import List
 import List.Extra exposing (minimumBy)
+import Set
 import Svg
 import Svg.Attributes as Svga
 import Task
 import Time
 import Html.Events exposing (onClick)
 
-import Base exposing (..)
-import Event exposing (Event, Events, ScreenEvent, eventEnd)
-import Bigbang
-import Stratigraphy
-
 import BackgroundGradient exposing (ColourStop)
+import Base exposing (..)
+import Bigbang
+import Configure
 import Debug
 import Dinosaurs
 import Geography
-import Event exposing (zoomHintHeight)
+import Event exposing (Event, Events, ScreenEvent, eventEnd, zoomHintHeight)
 import Gts
 import Human
+import Stratigraphy
 import Ticks exposing (Tick, getTicks)
 import TimeSlider exposing (TimeSlider)
 
@@ -83,6 +83,7 @@ type alias Model =
   , backgroundGradientStops : List BackgroundGradient.ColourStop
   , timeSlider : TimeSlider Msg
   , frameDelta : Float -- time in seconds since last frame
+  , enabledCategories : Set.Set String
   }
 
 type alias FadedScreenEvent =
@@ -122,6 +123,8 @@ type Msg
   | FocusOn Event
   | DataLoad (String -> Model -> (Result String Model, Cmd Msg)) (Result Http.Error String)
   | StartTimeSliderDrag TimeSlider.TimeSliderStartMsg
+  | EnableCategory String
+  | DisableCategory String
 
 initialTimeSlider : TimeSlider Msg
 initialTimeSlider = TimeSlider.init
@@ -148,6 +151,7 @@ init _ = let window = initWindow present 100 in
     , backgroundGradientStops = []
     , timeSlider = initialTimeSlider
     , frameDelta = 0.05
+    , enabledCategories = category2lane |> Dict.keys |> Set.fromList
     }
   , Cmd.batch
     [ Task.attempt viewportMsg getViewport
@@ -361,7 +365,7 @@ update msg model =
         , moveDecay = jogDecay ^ model.frameDelta
         , timeSlider = antilogit moveRate |> TimeSlider.setValue model1.timeSlider
         }, Cmd.none)
-    -- just stop when released for now
+    -- stop time movement when released
     MoveReleased -> (
       { model
       | moveRate = 0
@@ -391,12 +395,20 @@ update msg model =
       (Ok model1, cmd) -> (model1, cmd)
     DataLoad _ (Err err) -> let _ = Debug.log "failed to get" (showError err) in (model, Cmd.none)
     StartTimeSliderDrag sm -> ({model | timeSlider = TimeSlider.start model.timeSlider sm}, Cmd.none)
+    EnableCategory cat -> (
+      {model
+      | enabledCategories = model.enabledCategories |> Set.insert cat
+      }, Cmd.none)
+    DisableCategory cat -> (
+      {model
+      | enabledCategories = model.enabledCategories |> Set.remove cat
+      }, Cmd.none)
 
 midTime : Event -> Time
 midTime ev = (ev.start + eventEnd ev) / 2
 
-getZoomRate : Events -> TimeWindow -> Float -> Float -> Float -> Float
-getZoomRate events window moveRate currentZoomRate frameDelta =
+getZoomRate : Events -> TimeWindow -> Set.Set String -> Float -> Float -> Float -> Float
+getZoomRate events window categories moveRate currentZoomRate frameDelta =
   let
     maximumScreensPerSecond = 0.8
     zoomRateCoefficient = 1
@@ -410,7 +422,7 @@ getZoomRate events window moveRate currentZoomRate frameDelta =
     nextEventTimes = List.map midTime <| if moveRate < 0
       then events.previousEvents |> List.take hardMaxEvents
       else events.nextEvents |> List.take hardMaxEvents
-    idealHeight = zoomHintHeight mid events.zoomHints
+    idealHeight = zoomHintHeight mid categories events.zoomHints
     ratio = max minimumHeight idealHeight / height
     logIdealZoomRate = zoomRateCoefficient * frameDelta * Basics.logBase Basics.e ratio
     logCurrentZoomRate = Basics.logBase Basics.e currentZoomRate
@@ -478,7 +490,13 @@ updateModel model frameDelta =
     | window = window1
     , moveRate = moveRate1
     , events = events
-    , zoomRate = getZoomRate events window1 effectiveMoveRate zoomRate model.frameDelta
+    , zoomRate = getZoomRate
+      events
+      window1
+      model.enabledCategories
+      effectiveMoveRate
+      zoomRate
+      model.frameDelta
     , focused = focused2
     , timeSlider = TimeSlider.setValue model.timeSlider <| antilogit moveRate1
     , frameDelta = frameDelta
@@ -643,6 +661,7 @@ view
   , focused
   , backgroundGradientStops
   , timeSlider
+  , enabledCategories
   } =
   let
     timeHeight = window.top - window.bottom
@@ -650,7 +669,9 @@ view
     sliderWidth = 100
     sliderHeight = 0.5 * height
     sliderTop = 0.25 * height
-    { visibleEvents } = events
+    isRelevant : ScreenEvent -> Bool
+    isRelevant sev = Set.member sev.ev.category enabledCategories
+    relevantVisibleEvents = List.filter isRelevant events.visibleEvents
     -- At what x co-ordinate (in pixels) does the event box start?
     eventBoxLeftPx = 480
     eventBox elts = Html.div
@@ -714,7 +735,7 @@ view
     element = Html.Keyed.node "div"
       [ Html.Events.on "wheel" <| DJ.map MoveJog <| DJ.field "deltaY" DJ.float  -- MoveJog message
       ]
-      ([ ("event-bars", Html.Keyed.node "div" [] (List.map renderEvent visibleEvents))
+      ([ ("event-bars", Html.Keyed.node "div" [] (List.map renderEvent relevantVisibleEvents))
       , ("time-axis-ticks", getTicks window |> List.map renderTick |> Html.Keyed.node "div" [])
       , ("time-slider", TimeSlider.view timeSlider)
       , ("background-gradient", Html.div
@@ -726,7 +747,14 @@ view
         , style "width" "100%"
         , style "z-index" "0"
         ] [])
-      ] ++ focusIndicators)  -- focused event infromation
+      ] ++
+      [("cog"
+      , Configure.settings
+        EnableCategory
+        DisableCategory
+        (Dict.keys category2lane)
+        enabledCategories
+      )] ++ focusIndicators)  -- focused event infromation
   in
     { title = "DeepTime"
     , body = [element]

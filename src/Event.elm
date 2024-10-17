@@ -1,8 +1,10 @@
 module Event exposing (..)
 
 import Base exposing (Time, TimeDelta, TimeWindow, present)
+import Dict
 import Html
 import Heap
+import Set
 
 type alias Event =
   { category : String
@@ -46,7 +48,7 @@ type alias Events =
   { previousEvents : List Event  -- in reverse time order
   , visibleEvents : List ScreenEvent
   , nextEvents : List Event -- in forward order
-  , zoomHints : List ZoomHints -- where the nearest events are in each category
+  , zoomHints : Dict.Dict String ZoomHints -- where the nearest events are for each category
   }
 
 minimumWindowSize : Float
@@ -65,8 +67,11 @@ singleZoomHintHeight t zh =
     -- lerp between d0 an d1 depending on how close we are to each
   in d0 + dd * tp / td
 
-zoomHintHeight : Time -> List ZoomHints -> TimeDelta
-zoomHintHeight t zhs = zhs
+-- Get the ideal zoom from the zoom hints in the appropriate categories
+zoomHintHeight : Time -> Set.Set String -> Dict.Dict String ZoomHints -> TimeDelta
+zoomHintHeight t categories zhs = zhs
+  |> Dict.filter (\k _ -> Set.member k categories)
+  |> Dict.values
   |> List.map (singleZoomHintHeight t)
   |> List.minimum
   |> Maybe.withDefault minimumWindowSize
@@ -132,6 +137,7 @@ mergeWith f xs ys = case xs of
     [] -> xs
   [] -> ys
 
+-- Merge events; zoomHints categories must not overlap
 mergeScreenEvents : Events -> Events -> Events
 mergeScreenEvents evs0 evs1 =
   let
@@ -141,7 +147,7 @@ mergeScreenEvents evs0 evs1 =
     { previousEvents = mergeWith later evs0.previousEvents evs1.previousEvents
     , nextEvents = mergeWith earlier evs0.nextEvents evs1.nextEvents
     , visibleEvents = List.append evs0.visibleEvents evs1.visibleEvents
-    , zoomHints = List.append evs0.zoomHints evs1.zoomHints
+    , zoomHints = Dict.union evs0.zoomHints evs1.zoomHints
     }
 
 unzipList : (a -> Bool) -> List a -> (List a, List a)
@@ -201,7 +207,9 @@ findScreenEventsCustom minimalEventCount minimumEventSeparation window evs =
     { previousEvents = List.filter tooEarly evs |> forwardEvents
     , visibleEvents = visibles
     , nextEvents = List.filter tooLate evs |> reverseEvents
-    , zoomHints = [ zoomHints ]
+    , zoomHints = case List.head evs of
+        Nothing -> Dict.empty
+        Just ev -> Dict.singleton ev.category zoomHints
     }
 
 -- move ZoomHints back to t, if possible
@@ -234,12 +242,16 @@ zoomSizesGoForward t zh =
 moveZoomHintsTo : Time -> Events -> Events
 moveZoomHintsTo t evs =
   let
-    mzh zh = zh |> zoomSizesGoForward t |> zoomSizesGoBack t
+    mzh _ zh = zh |> zoomSizesGoForward t |> zoomSizesGoBack t
   in
     { evs
-    | zoomHints = List.map mzh evs.zoomHints
+    | zoomHints = Dict.map mzh evs.zoomHints
     }
 
+-- Adjust Events to fit the supplied TimeWindow.
+-- As Events knows which events are visible and which are
+-- too early or too late, it needs to be adjusted to the
+-- current TimeWindow every time it changes.
 adjustScreenEvents : TimeWindow -> Events -> Events
 adjustScreenEvents { top, bottom } evs =
   let
@@ -264,6 +276,7 @@ adjustScreenEvents { top, bottom } evs =
     , nextEvents = lates ++ stillNexts
     }
 
+-- Make a list of zoom hints.
 -- evs is a list of times of events from earliest to latest
 idealZoomSizes : Int -> Float -> List Time -> List (Time, TimeDelta)
 idealZoomSizes idealEventCount minEventSeparation evs =
@@ -279,6 +292,8 @@ idealZoomSizes idealEventCount minEventSeparation evs =
       in (current + (delta / 2), delta)
   in List.map3 makeTimeHint evs ahead1 ahead
 
+-- Take a list of events in one category, and set their xOffsets so that
+-- none of them overlap.
 setXOffsets : List Event -> List Event
 setXOffsets events =
   let
